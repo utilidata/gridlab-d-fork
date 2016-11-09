@@ -1380,9 +1380,21 @@ void eventgen::do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type)
 	char impl_fault[257];
 	RELEVANTSTRUCT *temp_struct, *temp_struct_b;
 	void *Extra_Data;
+	double Extra_Data_No_Metrics;
 
-	//Initialize
-	Extra_Data = NULL;
+	if (metrics_obj != NULL)
+	{
+		//Initialize
+		Extra_Data = NULL;
+	}
+	else
+	{
+		//Initialize to what is here
+		Extra_Data = &Extra_Data_No_Metrics;
+
+		//Zero it, for giggles
+		Extra_Data_No_Metrics = 0.0;
+	}
 	
 	//Reset next event time - we'll find the new one in here
 	next_event_time = TS_NEVER;

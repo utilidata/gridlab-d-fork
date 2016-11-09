@@ -345,7 +345,7 @@ public:
 		x = xt;
 		size_t t=m; m=n; n=t;
 	};
-	inline double *get_addr(const size_t r, const size_t c) { return x[r][c]; };
+	inline double *get_addr(const size_t r, const size_t c) { if (*x == NULL) { return NULL;} else { return x[r][c];} };
 	inline double *get_addr(const size_t c) { return get_addr(0,c); };
 	double get_at(const size_t r, const size_t c) { return is_nan(r,c) ? QNAN : *(x[r][c]) ; };
 	inline double get_at(const size_t c) { return get_at(0,c); };

@@ -41,6 +41,9 @@
 #include "load_tracker.h"
 #include "triplex_load.h"
 #include "impedance_dump.h"
+#include "jsondump.h"
+#include "jsonreader.h"
+#include "resilCoord.h"
 
 EXPORT CLASS *init(CALLBACKS *fntable, MODULE *module, int argc, char *argv[])
 {
@@ -141,6 +144,9 @@ EXPORT CLASS *init(CALLBACKS *fntable, MODULE *module, int argc, char *argv[])
 	new load_tracker(module);
 	new triplex_load(module);
 	new impedance_dump(module);
+	new jsondump(module);
+	new jsonreader(module);
+	new resilCoord(module);
 
 	/* always return the first class registered */
 	return node::oclass;

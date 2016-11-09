@@ -18,6 +18,7 @@
 
 CLASS* recloser::oclass = NULL;
 CLASS* recloser::pclass = NULL;
+//recloser *recloser::defaults = NULL;
 
 recloser::recloser(MODULE *mod) : switch_object(mod)
 {
@@ -34,6 +35,16 @@ recloser::recloser(MODULE *mod) : switch_object(mod)
 			PT_double, "retry_time[s]", PADDR(retry_time), PT_DESCRIPTION, "the amount of time in seconds to wait before the recloser attempts to close",
 			PT_double, "max_number_of_tries", PADDR(ntries), PT_DESCRIPTION, "the number of times the recloser will try to close before permanently opening",
 			PT_double, "number_of_tries", PADDR(curr_tries), PT_DESCRIPTION, "Current number of tries recloser has attempted",
+			PT_double, "nominal_current", PADDR(Irated), PT_DESCRIPTION, "Continuous current rating",
+			PT_double, "shorttime_current", PADDR(Ishort), PT_DESCRIPTION, "Short-time current rating",
+			PT_double, "shorttime_time", PADDR(tshort), PT_DESCRIPTION, "Short-time current rating",
+			PT_double, "trip_current", PADDR(Itrip), PT_DESCRIPTION, "Phase recloser trip rating",
+			PT_double, "reclose_time", PADDR(t_reclose), PT_DESCRIPTION, "Time for reclosing",
+			PT_double, "reset_time", PADDR(t_reset), PT_DESCRIPTION, "Time for reset recloser",
+			PT_int16, "number_lockout_fast", PADDR(lockout_fast), PT_DESCRIPTION, "Number of fast curve operations to lockout",
+			PT_int16, "number_lockout_slow", PADDR(lockout_slow), PT_DESCRIPTION, "Number of slow curve operations to lockout",
+			PT_double_array, "fastTCC",get_fastTCC_offset(),
+			PT_double_array, "slowTCC",get_slowTCC_offset(),
 			NULL) < 1) GL_THROW("unable to publish properties in %s",__FILE__);
 
 		if (gl_publish_function(oclass,"change_recloser_state",(FUNCTIONADDR)change_recloser_state)==NULL)
@@ -75,6 +86,16 @@ int recloser::create()
 	ntries = 0;
 	curr_tries = 0.0;
 	prev_rec_time = 0;
+
+	Irated = 0.0;
+	Ishort = 0.0;
+	tshort = 0.0;
+	Itrip = 0.0;
+	t_reclose = 0.0;
+	t_reset = 0.0;
+	lockout_fast = 0;
+	lockout_slow = 0;
+
 	return result;
 }
 
@@ -106,6 +127,16 @@ int recloser::init(OBJECT *parent)
 	} else {
 		return_time = (TIMESTAMP)floor(retry_time + 0.5);
 	}
+
+	unsigned int rowNum = fastTCC.get_rows();
+	unsigned int colNum = fastTCC.get_cols();
+	double *test = fastTCC.get_addr(0,0);
+
+	int t = 0;
+
+
+
+
 	return result;
 }
 
