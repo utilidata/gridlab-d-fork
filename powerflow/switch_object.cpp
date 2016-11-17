@@ -61,6 +61,8 @@ switch_object::switch_object(MODULE *mod) : link_object(mod)
 				GL_THROW("Unable to publish fault restoration function");
 			if (gl_publish_function(oclass,	"change_switch_faults", (FUNCTIONADDR)switch_fault_updates)==NULL)
 				GL_THROW("Unable to publish switch fault correction function");
+			if (gl_publish_function(oclass,	"change_switch_state_toggle", (FUNCTIONADDR)change_switch_state_toggle)==NULL)
+				GL_THROW("Unable to publish switch toggle function");
 
 			//Publish deltamode functions
 			if (gl_publish_function(oclass,	"interupdate_pwr_object", (FUNCTIONADDR)interupdate_switch)==NULL)
@@ -1718,6 +1720,58 @@ EXPORT int change_switch_state(OBJECT *thisobj, unsigned char phase_change, bool
 	return 1;	//This will always succeed...because I say so!
 }
 
+//Function to change switch states
+EXPORT int change_switch_state_toggle(OBJECT *thisobj)
+{
+	FUNCTIONADDR funadd = NULL;
+	int ext_result;
+
+	//Map the switch
+	switch_object *swtchobj = OBJECTDATA(thisobj,switch_object);
+
+	//See the current state
+	if (swtchobj->status == switch_object::OPEN)
+	{
+		swtchobj->set_switch(true);
+	}
+	else //Must be closed
+	{
+		swtchobj->set_switch(false);
+	}
+
+	//Call the fault_check routine to update topology to reflect our change
+
+	//Map the function
+	funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+	//Make sure it was found
+	if (funadd == NULL)
+	{
+		gl_error("Unable to update topology for switching action");
+		/*  TROUBLESHOOT
+		While attempting to map the reliability function to manipulate topology, an error occurred.
+		Please try again.  If the bug persists, please submit your code and a bug report via the
+		ticketing system.
+		*/
+
+		return 0;
+	}
+
+	//Perform topological check -- just pass a general node
+	ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
+
+	//Make sure it worked
+	if (ext_result != 1)
+	{
+		gl_error("Unable to update topology for switching action");
+		//defined above
+
+		return 0;
+	}
+
+	return 1;	//This will always succeed...because I say so!
+}
+
 //Reliability interface - generalized switch operation so switches and other opjects can be similarly
 EXPORT int reliability_operation(OBJECT *thisobj, unsigned char desired_phases)
 {
@@ -1741,6 +1795,7 @@ EXPORT int create_fault_switch(OBJECT *thisobj, OBJECT **protect_obj, char *faul
 
 	return retval;
 }
+
 EXPORT int fix_fault_switch(OBJECT *thisobj, int *implemented_fault, char *imp_fault_name, void *Extra_Data)
 {
 	int retval;

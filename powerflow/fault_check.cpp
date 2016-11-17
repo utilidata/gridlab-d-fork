@@ -276,12 +276,6 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 		}
 		else	//Mesh, maybe
 		{
-			//Do the grid association check (if needed)
-			if (grid_association_mode == true)
-			{
-				associate_grids();
-			}
-
 			//Overall check -- catches the first run, but we'll keep it here anyways
 			//Internal check, for random "islands"
 			if (NR_curr_bus != NR_bus_count)
@@ -295,15 +289,18 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 			}
 			else	//Populated, onward!
 			{
-				//Call the connectivity check
-				support_check_mesh(0);
-			}
+				//Reset the alteration matrix
+				reset_alterations_check();
 
-			//If the first run and we just ran, see if anything started "bad"
-			if (prev_time == 0)
-			{
-				//Special flag, so removal doesn't break everything (theoretically)
-				support_search_links_mesh(-77,false);
+				//Do the grid association check
+				associate_grids();
+
+				//Call a support check -- reset handled inside
+				//Always assumed to NOT be in "restoration object" mode
+				support_check_mesh();
+
+				//Now loop through and remove those components that are not supported anymore -- start from SWING, just because we have to start somewhere
+				support_search_links_mesh();
 			}
 
 			override_output = output_check_supported_mesh();	//See if anything changed
@@ -440,106 +437,58 @@ void fault_check::search_links_mesh(int node_int)
 	unsigned int index, device_value, node_value;
 	unsigned char temp_phases, temp_compare_phases;
 
-	//Check our entry mode -- if grid association mode, do this as a recursion
-	if (grid_association_mode == false)	//Nope, do "normally"
+	//Loop through our connected nodes
+	for (index=0; index<NR_busdata[node_int].Link_Table_Size; index++)
 	{
-		//Loop through our connected nodes
-		for (index=0; index<NR_busdata[node_int].Link_Table_Size; index++)
+		//Pull link index -- just for readabiiity
+		device_value = NR_busdata[node_int].Link_Table[index];
+
+		//Get our opposite end reference
+		if (node_int == NR_branchdata[device_value].from)
 		{
-			//Pull link index -- just for readabiiity
-			device_value = NR_busdata[node_int].Link_Table[index];
+			//Extract our index
+			node_value = NR_branchdata[device_value].to;
+		}
+		else	//Must be the TO side, so check from
+		{
+			//Extract our index
+			node_value = NR_branchdata[device_value].from;
+		}
 
-			//Get our opposite end reference
-			if (node_int == NR_branchdata[device_value].from)
-			{
-				//Extract our index
-				node_value = NR_branchdata[device_value].to;
-			}
-			else	//Must be the TO side, so check from
-			{
-				//Extract our index
-				node_value = NR_branchdata[device_value].from;
-			}
+		//Get initial phasing information - the ones that are available
+		temp_phases = NR_branchdata[device_value].phases;
 
-			//Get initial phasing information - the ones that are available
-			temp_phases = NR_branchdata[device_value].phases;
-
-			//See if either end has any valid phases
-			if ((valid_phases[node_int] != 0x00) || (valid_phases[node_value] != 0x00))
+		//See if either end has any valid phases
+		if ((valid_phases[node_int] != 0x00) || (valid_phases[node_value] != 0x00))
+		{
+			//Are we a switch
+			if ((NR_branchdata[device_value].lnk_type == 2) || (NR_branchdata[device_value].lnk_type == 5) || (NR_branchdata[device_value].lnk_type == 6))
 			{
-				//Are we a switch
-				if ((NR_branchdata[device_value].lnk_type == 2) || (NR_branchdata[device_value].lnk_type == 5) || (NR_branchdata[device_value].lnk_type == 6))
-				{
-					if (*NR_branchdata[device_value].status == 1)
-					{
-						temp_phases |= NR_branchdata[device_value].origphases & 0x07;
-					}
-				}
-				else
+				if (*NR_branchdata[device_value].status == 1)
 				{
 					temp_phases |= NR_branchdata[device_value].origphases & 0x07;
 				}
 			}
+			else
+			{
+				temp_phases |= NR_branchdata[device_value].origphases & 0x07;
+			}
+		}
 
-			//Populate the phase information
-			valid_phases[node_value] |= (valid_phases[node_int] & temp_phases);
-		}//End of node link table traversion
-	}//End not grid association mode
-	else	//Grid association mode
-	{
-		//Loop through our connected nodes
-		for (index=0; index<NR_busdata[node_int].Link_Table_Size; index++)
+		//Check our "contributions" against the other end - use this to determine recursion
+		temp_compare_phases = (valid_phases[node_value] | (valid_phases[node_int] & temp_phases));
+
+		//See if it is the same
+		if (valid_phases[node_value] != temp_compare_phases)
 		{
-			//Pull link index -- just for readabiiity
-			device_value = NR_busdata[node_int].Link_Table[index];
+			//Populate the phase information - store what we just did (no point doing twice)
+			valid_phases[node_value] = temp_compare_phases;
 
-			//Get our opposite end reference
-			if (node_int == NR_branchdata[device_value].from)
-			{
-				//Extract our index
-				node_value = NR_branchdata[device_value].to;
-			}
-			else	//Must be the TO side, so check from
-			{
-				//Extract our index
-				node_value = NR_branchdata[device_value].from;
-			}
-
-			//Get initial phasing information - the ones that are available
-			temp_phases = NR_branchdata[device_value].phases;
-
-			//See if either end has any valid phases
-			if ((valid_phases[node_int] != 0x00) || (valid_phases[node_value] != 0x00))
-			{
-				//Are we a switch
-				if ((NR_branchdata[device_value].lnk_type == 2) || (NR_branchdata[device_value].lnk_type == 5) || (NR_branchdata[device_value].lnk_type == 6))
-				{
-					if (*NR_branchdata[device_value].status == 1)
-					{
-						temp_phases |= NR_branchdata[device_value].origphases & 0x07;
-					}
-				}
-				else
-				{
-					temp_phases |= NR_branchdata[device_value].origphases & 0x07;
-				}
-			}
-
-			//Check our "contributions" against the other end - use this to determine recursion
-			temp_compare_phases = (valid_phases[node_value] | (valid_phases[node_int] & temp_phases));
-
-			//See if it is the same
-			if (valid_phases[node_value] != temp_compare_phases)
-			{
-				//Populate the phase information - store what we just did (no point doing twice)
-				valid_phases[node_value] = temp_compare_phases;
-
-				//Recurse in, do this node now
-				search_links_mesh(node_value);
-			}
-			//Default else -- they match, so don't bother
-		}//End of node link table traversion
-	}//End grid association mode
+			//Recurse in, do this node now
+			search_links_mesh(node_value);
+		}
+		//Default else -- they match, so don't bother
+	}//End of node link table traversion
 }
 
 void fault_check::support_check(int swing_node_int)
@@ -564,50 +513,31 @@ void fault_check::support_check(int swing_node_int)
 }
 
 //Mesh-capable version of support check -- by default, it doesn't support restoration object
-void fault_check::support_check_mesh(int swing_node_int)
+void fault_check::support_check_mesh(void)
 {
 	unsigned int indexa, indexb;
 
 	//Reset the node status list
 	reset_support_check();
 
-	if (grid_association_mode == false)	//Not needing to do grid association, use normal, inefficient method
+	//Traverse the whole bus list, just in case (since may be altered in the future)
+	for (indexa=0; indexa<NR_bus_count; indexa++)
 	{
-		//Swing node has support - if the phase exists (changed for complete faults)
-		valid_phases[swing_node_int] = NR_busdata[swing_node_int].phases & 0x07;
-
-		//Call the node link-erator (node support check) - call it on the swing, the details are handled inside
-		//Supports possibly meshed topology - brute force method
-		for (indexa=0; indexa<NR_bus_count; indexa++)
+		//See if we're a SWING node
+		if ((NR_busdata[indexa].type == 2) || ((NR_busdata[indexa].type == 3) && (NR_busdata[indexa].swing_functions_enabled == true)) || ((*NR_busdata[indexa].busflag & NF_ISSOURCE) == NF_ISSOURCE))	//SWING node, of some form
 		{
-			for (indexb=0; indexb<NR_bus_count; indexb++)
+			//Check and see if we've apparently been "sourced" before
+			if ((NR_busdata[indexa].phases & 0x07) != valid_phases[indexa])	//We don't match, so something came to us, but not the other way
 			{
-				//Call the search link on individual nodes
-				search_links_mesh(indexb);
-			}
-		}
-	}
-	else	//Grid association mode, do slightly different
-	{
-		//Traverse the whole bus list, just in case (since may be altered in the future)
-		for (indexa=0; indexa<NR_bus_count; indexa++)
-		{
-			//See if we're a SWING node
-			if ((NR_busdata[indexa].type == 2) || ((NR_busdata[indexa].type == 3) && (NR_busdata[indexa].swing_functions_enabled == true)) || ((*NR_busdata[indexa].busflag & NF_ISSOURCE) == NF_ISSOURCE))	//SWING node, of some form
-			{
-				//Check and see if we've apparently been "sourced" before
-				if ((NR_busdata[indexa].phases & 0x07) != valid_phases[indexa])	//We don't match, so something came to us, but not the other way
-				{
-					//Extract our phases
-					valid_phases[indexa] |= (NR_busdata[indexa].phases & 0x07);
+				//Extract our phases
+				valid_phases[indexa] |= (NR_busdata[indexa].phases & 0x07);
 
-					//Call the support check
-					search_links_mesh(indexa);
-				}
-				//Default else -- we were already handled
+				//Call the support check
+				search_links_mesh(indexa);
 			}
-			//Default else -- not a swing
+			//Default else -- we were already handled
 		}
+		//Default else -- not a swing
 	}
 }
 
@@ -1029,18 +959,15 @@ void fault_check::support_check_alterations(int baselink_int, bool rest_mode)
 		//Reset the alteration matrix
 		reset_alterations_check();
 
-		//Do the grid association check (if needed)
-		if (grid_association_mode == true)
-		{
-			associate_grids();
-		}
+		//Do the grid association check
+		associate_grids();
 
 		//Call a support check -- reset handled inside
 		//Always assumed to NOT be in "restoration object" mode
-		support_check_mesh(0);
+		support_check_mesh();
 
 		//Now loop through and remove those components that are not supported anymore -- start from SWING, just because we have to start somewhere
-		support_search_links_mesh(baselink_int,rest_mode);
+		support_search_links_mesh();
 	}//End Strictly radial assumption
 
 	//Determine if an output is desired and if we're not in restoration check mode (otherwise, it may flood the output log)
@@ -1073,193 +1000,70 @@ void fault_check::support_check_alterations(int baselink_int, bool rest_mode)
 //Recursive function to traverse powerflow and alter phases as necessary
 //Checks against support found, not an assumed radial traversion (little slower, but more thorough)
 //Based on support_search_links below
-void fault_check::support_search_links_mesh(int baselink_int, bool impact_mode)
+void fault_check::support_search_links_mesh(void)
 {
 	unsigned int indexval, index;
 	int device_index;
-	unsigned char temp_phases, work_phases, remove_phases, add_phases;
+	unsigned char avail_phases, result_phases, temp_phases;
 
-	//First things first -- figure out how to flag ourselves
-	if (impact_mode == false)	//Removal mode
-	{
-		if ((baselink_int != -99) && (baselink_int != -77))	//Not a SWING-related fault, so actually do something (SWING just proceeds in)
-		{
-			//Figure out which phases mismatch the FROM/TO ends of this link - 
-			temp_phases = ((valid_phases[NR_branchdata[baselink_int].from] ^ valid_phases[NR_branchdata[baselink_int].to]) & 0x07);
-
-			//Cast by our original phases, in case something else broke us first
-			remove_phases = temp_phases & NR_branchdata[baselink_int].origphases;
-
-			//Flag us as handled
-			Alteration_Links[baselink_int] = 1;
-		}//Not a SWING fault
-		else	//Swing node -- add it in
-		{
-			//See what phases were removed from us
-			remove_phases = ((NR_busdata[0].origphases ^ NR_busdata[0].phases) & 0x07);
-
-			//Flag us as handled
-			Alteration_Nodes[0] = 1;
-		}
-		//Default else, just proceed
-	}
-	else	//Restoration mode
-	{
-		if ((baselink_int != -99) && (baselink_int != -77))	//Not a SWING-related fault, so actually do somethign (SWING just proceeds in)
-		{
-			//Flag us as handled
-			Alteration_Links[baselink_int] = 1;
-		}//Not a SWING fault
-		else	//Are a swing node, get the information back
-		{
-			//Flag us as handled
-			Alteration_Nodes[0] = 1;
-		}
-	}
-		
-	//Traverse the bus list
+	//Loop through all of the nodes and update them with the valid phases we found
 	for (indexval=0; indexval<NR_bus_count; indexval++)
 	{
-		//Check our location in the support check -- see if we're supported or not and alter as necessary
-		if (impact_mode == true)	//Restoration
+		//Just force to the valid phases - mask by the original phases, just in case
+		result_phases = ((valid_phases[indexval] & 0x07) | (NR_busdata[indexval].origphases & 0xF8));
+
+		//Store it
+		NR_busdata[indexval].phases = result_phases;
+	}//End bus progression
+
+	//Now loop the links and do "effectively" the same
+	for (indexval=0; indexval<NR_branch_count; indexval++)
+	{
+		//Find out what phases we could support
+		avail_phases = ((NR_busdata[NR_branchdata[indexval].from].phases & NR_busdata[NR_branchdata[indexval].to].phases) & 0x07);
+		result_phases = ((NR_branchdata[indexval].origphases & 0xF8) | avail_phases);
+		
+		//Make sure we're not switchable first
+		//Switch, fuse, recloser, or sectionalizer, basically
+		//So this singles out lines, triplex_lines, and transformers
+		if ((NR_branchdata[indexval].lnk_type == 0) || (NR_branchdata[indexval].lnk_type == 1) || (NR_branchdata[indexval].lnk_type == 4))
 		{
-			//Mask out our phases -- see what is available
-			work_phases = NR_busdata[indexval].phases & 0x07;
-
-			//See if any change is needed
-			if (work_phases != valid_phases[indexval])
-			{
-				//Figure out what is being added back in
-				work_phases = NR_busdata[indexval].origphases & valid_phases[indexval];
-
-				//Figure out the change
-				add_phases = ((NR_busdata[indexval].phases ^ work_phases) & 0x07);
-
-				//See if we're triplex
-				if ((NR_busdata[indexval].origphases & 0x80) == 0x80)
-				{
-					add_phases |= (NR_busdata[indexval].origphases & 0xE0);	//SP, House?, To SPCT - flagged on
-				}
-				else if (work_phases == 0x07)	//Fully connected, we can pass D and diff conns
-				{
-					add_phases |= (NR_busdata[indexval].origphases & 0x18);	//D
-				}
-
-				//Apply the change to the TO node
-				NR_busdata[indexval].phases |= add_phases;
-
-				//Loop through our links and adjust anyone necessary
-				for (index=0; index<NR_busdata[indexval].Link_Table_Size; index++)	//parse through our connected link
-				{
-					//Extract the branchdata reference
-					device_index = NR_busdata[indexval].Link_Table[index];
-
-					//See if it has already been handled -- no sense in duplicating items
-					if (Alteration_Links[device_index] == 0)	//Not handled
-					{
-						//See which phases are even allowed
-						temp_phases = (valid_phases[NR_branchdata[device_index].from] & valid_phases[NR_branchdata[device_index].to]);
-
-						//See how these compare with what we can do
-						add_phases = NR_branchdata[device_index].origphases & temp_phases;
-
-						//Make sure it's non-zero
-						if (add_phases != 0x00)	//We can add something!
-						{
-							//See if we were original triplex-oriented
-							if ((NR_branchdata[device_index].origphases & 0x80) == 0x80)
-							{
-								add_phases |= (NR_branchdata[device_index].origphases & 0xE0);	//Mask in SPCT-type flags
-							}
-
-							//Restore components - USBs are typically node oriented, so they aren't explicitly included here
-							NR_branchdata[device_index].phases |= add_phases;
-
-						}//End addition of phases
-						//Default else, nothing new supported here
-
-						//Flag this branch as handled
-						Alteration_Links[device_index] = 1;
-					
-						//Functionalized version of modifier
-						special_object_alteration_handle(device_index);
-					}//End unhandled
-					//Defaulted else, already handled, next item in the list
-				}//End list traversion
-			}//End change needed
-			//Default else, no change
-
-			//Flag us as handled -- whether we changed or not
-			Alteration_Nodes[indexval] = 1;
-		}//End restoration mode
-		else	//Removal mode
+			//Not a switchable device, so just put our phases in
+			NR_branchdata[indexval].phases = result_phases;
+		}
+		else if (NR_branchdata[indexval].lnk_type != 3)	//Not a fuse (so a switch device)
 		{
-			//Mask out our phases -- see what is available to remove
-			work_phases = NR_busdata[indexval].phases & 0x07;
-
-			//See if any change is needed
-			if (work_phases != valid_phases[indexval])
+			//See if we're actually closed
+			if (*NR_branchdata[indexval].status == 1)
 			{
-				//Mask out the work_phases by the "supported" ones
-				work_phases = work_phases & valid_phases[indexval];
+				//Put the phases in
+				NR_branchdata[indexval].phases = result_phases;
+			}
+			else	//Open, so blank us
+			{
+				//Draconian blank - just lower phases
+				NR_branchdata[indexval].phases = NR_branchdata[indexval].origphases & 0xF8;
+			}
+		}
+		else	//We are a fuse
+		{
+			//Check service flag
+			if (*NR_branchdata[indexval].status == 1)
+			{
+				//In-service -- see which phases are active and create a mask
+				temp_phases = (((~NR_branchdata[indexval].faultphases) & 0x07) | 0xF8);
 
-				//Figure out what was just removed -- assumes it was a removal
-				remove_phases = ((NR_busdata[indexval].phases ^ work_phases) & 0x07);
+				//Mask out the original
+				NR_branchdata[indexval].phases = result_phases & temp_phases;
+			}
+			else	//Open, so blank us
+			{
+				//Draconian blank - just lower phases
+				NR_branchdata[indexval].phases = NR_branchdata[indexval].origphases & 0xF8;
+			}
+		}
 
-				//Loop through our link table -- if we don't have a support phase, they shouldn't be valid either
-				for (index=0; index<NR_busdata[indexval].Link_Table_Size; index++)	//parse through our connected link
-				{
-					//Extract the branchdata reference
-					device_index = NR_busdata[indexval].Link_Table[index];
-
-					//See if it has already been handled -- no sense in duplicating items
-					if (Alteration_Links[device_index] == 0)	//Not handled
-					{
-						//See if we are split-phase
-						if ((NR_branchdata[device_index].phases & 0x80) == 0x80)
-						{
-							//Just remove it all
-							NR_branchdata[device_index].phases = 0x00;
-						}
-						else	//Not split-phase, normal - continue
-						{
-							//Remove components - USBs are typically node oriented, so they aren't included here
-							NR_branchdata[device_index].phases &= work_phases;
-						}
-
-						//Flag as handled
-						Alteration_Links[device_index] = 1;
-					
-						//Functionalized version of modifier
-						special_object_alteration_handle(device_index);
-					}//Link not handled
-					else	//Link already handled, proceed
-					{
-						continue;	//Probably really don't need this explicitly specified, but meh
-					}
-				}//End link table traversion
-
-				//See if the node is Triplex & valie - if so, bring the flag in.  If not, clear it
-				if (((NR_busdata[indexval].phases & 0x80) == 0x80) && (work_phases != 0x00))
-				{
-					work_phases |= 0xE0;	//SP, House?, To SPCT - flagged on
-				}
-				else if (work_phases == 0x07)	//Fully connected, we can pass D and diff conns
-				{
-					work_phases |= 0x18;	//House?, D
-				}
-
-				//Apply the change to the TO node
-				NR_busdata[indexval].phases &= work_phases;
-
-				//Flag this node as handled
-				Alteration_Nodes[indexval] = 1;
-			}//End phases don't match - action necessary
-			//Defaulted else, continue
-		}//End removal mode
-	}//End bus traversion list
-
-	//Should be done -- links should have been caught by respective bus values
+	}//End Link progression
 }
 
 //Code to check the special link devices and modify as needed

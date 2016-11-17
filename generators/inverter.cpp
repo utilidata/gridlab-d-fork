@@ -666,7 +666,7 @@ int inverter::init(OBJECT *parent)
 		//Never supposed to really get here
 		GL_THROW("Invalid phase configuration specified!");
 		/*  TROUBLESHOOT
-		An invalid phase congifuration was specified when attaching to the "parent" object.  Please report this
+		An invalid phase configuration was specified when attaching to the "parent" object.  Please report this
 		error.
 		*/
 	}
