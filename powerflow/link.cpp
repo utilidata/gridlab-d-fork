@@ -8907,12 +8907,11 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			switch_val = true;
 
 		}//End switches
-		else if ((fault_type[0] == 'F') && (fault_type[1] == 'U') && (fault_type[2] == 'S'))	//Any fuse fault -- just error, these aren't allowed anymore
+		else if ((fault_type[0] == 'F') && (fault_type[1] == 'U') && (fault_type[2] == 'S'))	//Any fuse fault -- put a verbose in here, for giggles.  Handled elswhere
 		{
-			GL_THROW("Fuse-type fault was induced by an external call -- this is no longer allowed!");
+			gl_verbose("Fuse-type fault was induced by an external call");
 			/*  TROUBLESHOOT
-			A fuse-type fault was induced on the system, likely from an eventgen object.  This should not happen and is no longer a viable
-			way to induce a fuse fault.  Please submit your code and a bug report via the ticketing system.
+			A fuse-type fault was induced on the system, likely from an eventgen object.
 			*/
 		}//Fuse fault
 		else	//Undetermined fault - fail us
@@ -9218,6 +9217,11 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			//Switch induced fault is still handled this way, just for compatibility
 			if ((NR_branchdata[NR_branch_reference].lnk_type == 2) && (switch_val == true))
 			{
+				//Flag a topology change (just in case)
+				LOCK_OBJECT(NR_swing_bus);	//Lock SWING since we'll be modifying this
+				NR_admit_change = true;	//Flag an admittance change
+				UNLOCK_OBJECT(NR_swing_bus);	//Finished
+
 				//Follows convention of safety devices above
 				//Extra coding - basically what would have happened below when it was classified as a safety device
 				//Get the switch

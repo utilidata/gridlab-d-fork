@@ -435,7 +435,7 @@ void fault_check::search_links(int node_int)
 void fault_check::search_links_mesh(int node_int)
 {
 	unsigned int index, device_value, node_value;
-	unsigned char temp_phases, temp_compare_phases;
+	unsigned char temp_phases, temp_compare_phases, result_phases;
 
 	//Loop through our connected nodes
 	for (index=0; index<NR_busdata[node_int].Link_Table_Size; index++)
@@ -467,6 +467,22 @@ void fault_check::search_links_mesh(int node_int)
 				if (*NR_branchdata[device_value].status == 1)
 				{
 					temp_phases |= NR_branchdata[device_value].origphases & 0x07;
+				}
+			}
+			else if (NR_branchdata[device_value].lnk_type == 3)	//Fuse
+			{
+				//See if it is "base closed"
+				if (*NR_branchdata[device_value].status == 1)
+				{
+					//In-service -- see which phases are active and create a mask
+					result_phases = (((~NR_branchdata[device_value].faultphases) & 0x07) | 0xF8);
+
+					//Mask out the original
+					temp_phases |= NR_branchdata[device_value].origphases & result_phases;
+				}
+				else	//Full open - just ignore it
+				{
+					temp_phases = 0x00;
 				}
 			}
 			else

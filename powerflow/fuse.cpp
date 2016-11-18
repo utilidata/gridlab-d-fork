@@ -304,12 +304,13 @@ TIMESTAMP fuse::sync(TIMESTAMP t0)
 {
 	OBJECT *obj = OBJECTHDR(this);
 	unsigned char work_phases;
-	bool fuse_blew;
+	bool fuse_blew, fuse_fixed;
 	TIMESTAMP replacement_time;
 	TIMESTAMP replacement_duration;
 	TIMESTAMP t2;
 	char fault_val[9];
 	int result_val;
+	char indexer_val;
 
 	//Try to map the event_schedule function address, if we haven't tried yet
 	if (event_schedule_map_attempt == false)
@@ -353,40 +354,79 @@ TIMESTAMP fuse::sync(TIMESTAMP t0)
 	//May need to be appropriately adjusted once FBS supports reliability
 	if (solver_method == SM_NR)
 	{
-		//Put any fuses back in service, if they're ready
-		if (((fix_time[0] <= t0) || (fix_time[1] <= t0) || (fix_time[2] <= t0)) && (event_schedule == NULL))	//Only needs to be done if reliability isn't present
+		//Only needs to be done if reliability isn't present, or we're in the "other method"
+		if ((event_schedule == NULL) || (meshed_fault_checking_enabled == true))
 		{
-			//Bring the phases back that are necessary
-			if ((fix_time[0] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x04) == 0x04))	//Phase A ready and had a phase A
+			//Flag as nothing fixed, at first
+			fuse_fixed = false;
+			work_phases = 0x00;
+
+			//Put any fuses back in service, if they're ready
+			if ((fix_time[0] <= t0) || (fix_time[1] <= t0) || (fix_time[2] <= t0))
 			{
-				//Update status
-				phase_A_state = GOOD;
+				//Bring the phases back that are necessary
+				if ((fix_time[0] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x04) == 0x04))	//Phase A ready and had a phase A
+				{
+					//Update status
+					phase_A_state = GOOD;
 
-				//Pop in the variables for the reliability update (if it exists)
-				fix_time[0] = TS_NEVER;	//Reset variables
-			}
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[0] = TS_NEVER;	//Reset variables
 
-			if ((fix_time[1] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x02) == 0x02))	//Phase B ready and had a phase B
-			{
-				//Update status
-				phase_B_state = GOOD;
+					//Flag a change
+					fuse_fixed = true;
+					work_phases |= 0x04;
+				}
 
-				//Pop in the variables for the reliability update (if it exists)
-				fix_time[1] = TS_NEVER;	//Reset variables
-			}
+				if ((fix_time[1] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x02) == 0x02))	//Phase B ready and had a phase B
+				{
+					//Update status
+					phase_B_state = GOOD;
 
-			if ((fix_time[2] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x01) == 0x01))	//Phase C ready and had a phase C
-			{
-				//Update status
-				phase_C_state = GOOD;
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[1] = TS_NEVER;	//Reset variables
 
-				//Pop in the variables for the reliability update (if it exists)
-				fix_time[2] = TS_NEVER;	//Reset variables
-			}
-		}//End back in service
+					//Flag a change
+					fuse_fixed = true;
+					work_phases |= 0x02;
+				}
+
+				if ((fix_time[2] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x01) == 0x01))	//Phase C ready and had a phase C
+				{
+					//Update status
+					phase_C_state = GOOD;
+
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[2] = TS_NEVER;	//Reset variables
+
+					//Flag a change
+					fuse_fixed = true;
+					work_phases |= 0x01;
+				}
+			}//End back in service
+		}//End no event_gen or mesh method
+		else
+		{
+			//Deflag, just in case
+			fuse_fixed = false;
+		}
 
 		//Call syncing function
 		fuse_sync_function();
+
+		//See if anything updated - if so, call the function to fix it (before we break it below)
+		if (fuse_fixed == true)
+		{
+			//Call the function to remove phases/handle this
+			result_val = fuse_mesh_method_change(work_phases,false);
+
+			//Make sure it worked
+			if (result_val != 1)
+			{
+				GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+				//Defined below
+			}
+		}
 
 		//Call overlying link sync
 		t2=link_object::sync(t0);
@@ -592,44 +632,106 @@ TIMESTAMP fuse::sync(TIMESTAMP t0)
 				//Defined above
 			}//End switch
 
-			if (event_schedule != NULL)	//Function was mapped - go for it!
+			//Figure out which method we're using
+			if (meshed_fault_checking_enabled==true)
 			{
-				//Call the function
-				result_val = ((int (*)(OBJECT *, OBJECT *, char *, TIMESTAMP, TIMESTAMP, int, bool))(*event_schedule))(*eventgen_obj,obj,fault_val,t0,0,-1,false);
+				//Call the function to remove phases/handle this
+				result_val = fuse_mesh_method_change(work_phases,true);
 
 				//Make sure it worked
 				if (result_val != 1)
 				{
 					GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+					//Defined below
+				}
+			}
+			else	//"Standard" method
+			{
+				if (event_schedule != NULL)	//Function was mapped - go for it!
+				{
+					//Call the function
+					result_val = ((int (*)(OBJECT *, OBJECT *, char *, TIMESTAMP, TIMESTAMP, int, bool))(*event_schedule))(*eventgen_obj,obj,fault_val,t0,0,-1,false);
+
+					//Make sure it worked
+					if (result_val != 1)
+					{
+						GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+						/*  TROUBLESHOOT
+						While attempting to propagate a blown fuse's impacts, an error was encountered.  Please
+						try again.  If the error persists, please submit your code and a bug report via the trac website.
+						*/
+					}
+
+					//Ensure we don't go anywhere yet
+					t2 = t0;
+
+				}	//End fault object present
+				else	//No object, just fail us out - save the iterations
+				{
+					gl_warning("No fault_check object present - Newton-Raphson solver may fail!");
 					/*  TROUBLESHOOT
-					While attempting to propagate a blown fuse's impacts, an error was encountered.  Please
-					try again.  If the error persists, please submit your code and a bug report via the trac website.
+					A fuse blew and created an open link.  If the system is not meshed, the Newton-Raphson
+					solver will likely fail.  Theoretically, this should be a quick fail due to a singular matrix.
+					However, the system occasionally gets stuck and will exhaust iteration cycles before continuing.
+					If the fuse is blowing and the NR solver still iterates for a long time, this may be the case.
 					*/
 				}
-
-				//Ensure we don't go anywhere yet
-				t2 = t0;
-
-			}	//End fault object present
-			else	//No object, just fail us out - save the iterations
-			{
-				gl_warning("No fault_check object present - Newton-Raphson solver may fail!");
-				/*  TROUBLESHOOT
-				A fuse blew and created an open link.  If the system is not meshed, the Newton-Raphson
-				solver will likely fail.  Theoretically, this should be a quick fail due to a singular matrix.
-				However, the system occasionally gets stuck and will exhaust iteration cycles before continuing.
-				If the fuse is blowing and the NR solver still iterates for a long time, this may be the case.
-				*/
-			}
+			}//End old approach
 		}
 	}//End NR-only reliability calls
 	else	//FBS
 		t2 = link_object::sync(t0);
 
-	if (t2==TS_NEVER)
-		return(t2);
-	else
-		return(-t2);	//Soft limit it
+	//Mesh fault-based method - update logic
+	if (meshed_fault_checking_enabled == true)
+	{
+		//See if any restoration times are active
+		if ((fix_time[0] != TS_NEVER) || (fix_time[1] != TS_NEVER) || (fix_time[2] != TS_NEVER))
+		{
+			//Set the initial value -- set it as "really big", if it isn't TS_NEVER
+			if (t2 != TS_NEVER)
+			{
+				if (t2 > 0)
+				{
+					replacement_time = t2;
+				}
+				else
+				{
+					replacement_time = -t2;
+				}
+			}
+			else
+			{
+				replacement_time = TS_NEVER;
+			}
+
+			//Figure out the max time -- they're theoretically all the same, but you never know
+			for (indexer_val=0; indexer_val<3; indexer_val++)
+			{
+				if (fix_time[indexer_val] < replacement_time)
+				{
+					replacement_time = fix_time[indexer_val];
+				}
+			}
+
+			//Now that we're done, return it as a soft -- shouldn't be TS_NEVER, by default
+			return -replacement_time;
+		}
+		else	//Standard update, like below
+		{
+			if (t2==TS_NEVER)
+				return(t2);
+			else
+				return(-t2);	//Soft limit it
+		}
+	}
+	else	//Traditional update
+	{
+		if (t2==TS_NEVER)
+			return(t2);
+		else
+			return(-t2);	//Soft limit it
+	}
 }
 
 TIMESTAMP fuse::postsync(TIMESTAMP t0)
@@ -740,6 +842,11 @@ void fuse::fuse_sync_function(void)
 
 			phase_A_state = phase_B_state = phase_C_state = BLOWN;	//All open
 			NR_branchdata[NR_branch_reference].phases &= 0xF0;		//Remove all our phases
+			if (meshed_fault_checking_enabled==true)	//Different operating mode
+			{
+				NR_branchdata[NR_branch_reference].faultphases = NR_branchdata[NR_branch_reference].origphases & 0x07;
+			}
+
 		}
 		else	//Closed means a phase-by-phase basis
 		{
@@ -750,11 +857,19 @@ void fuse::fuse_sync_function(void)
 					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x04;
 					NR_branchdata[NR_branch_reference].phases |= 0x04;	//Ensure we're set
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases &= 0xFB;	//Make sure we're NOT set
+					}
 				}
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
 					NR_branchdata[NR_branch_reference].phases &= 0xFB;	//Make sure we're removed
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases |= 0x04;	//Make sure fault condition is set
+					}
 				}
 			}
 
@@ -765,11 +880,19 @@ void fuse::fuse_sync_function(void)
 					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x02;
 					NR_branchdata[NR_branch_reference].phases |= 0x02;	//Ensure we're set
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases &= 0xFD;	//Make sure we're NOT set
+					}
 				}
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
 					NR_branchdata[NR_branch_reference].phases &= 0xFD;	//Make sure we're removed
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases |= 0x02;	//Make sure fault condition is set
+					}
 				}
 			}
 
@@ -780,11 +903,19 @@ void fuse::fuse_sync_function(void)
 					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x01;
 					NR_branchdata[NR_branch_reference].phases |= 0x01;	//Ensure we're set
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases &= 0xFE;	//Make sure we're NOT set
+					}
 				}
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
 					NR_branchdata[NR_branch_reference].phases &= 0xFE;	//Make sure we're removed
+					if (meshed_fault_checking_enabled==true)	//Different operating mode
+					{
+						NR_branchdata[NR_branch_reference].faultphases |= 0x01;	//Make sure fault condition is set
+					}
 				}
 			}
 		}
@@ -799,6 +930,72 @@ void fuse::fuse_sync_function(void)
 
 		prev_full_status = pres_status;	//Update the status flags
 	}//end SM_NR
+}
+
+//Functionalized approach to actually blowing/restoring phases
+//in the device
+//Blow = true
+//Restore = false
+int fuse::fuse_mesh_method_change(unsigned char blown_phases,bool blow_restore)
+{
+	FUNCTIONADDR relfunc = NULL;
+	int ext_result;
+
+	if (blow_restore == true)
+	{
+		//Remove the appropriate phases
+		NR_branchdata[NR_branch_reference].phases &= (~blown_phases);
+
+		//Flag these as faulted stuff
+		NR_branchdata[NR_branch_reference].faultphases |= blown_phases;
+	}
+	else
+	{
+		//Remove the appropriate phases
+		NR_branchdata[NR_branch_reference].phases |= (blown_phases & 0x07);
+
+		//Flag these as faulted stuff
+		NR_branchdata[NR_branch_reference].faultphases &= (~blown_phases);
+	}
+
+	//Flag an update
+	LOCK_OBJECT(NR_swing_bus);	//Lock SWING since we'll be modifying this
+	NR_admit_change = true;	//Flag an admittance change
+	UNLOCK_OBJECT(NR_swing_bus);	//Finished
+
+	//Map up the "alteration" function
+	//Call the fault_check routine to update topology to reflect our change
+
+	//Map the function
+	relfunc = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+	//Make sure it was found
+	if (relfunc == NULL)
+	{
+		gl_error("Unable to update topology for fusing action");
+		/*  TROUBLESHOOT
+		While attempting to map the reliability function to manipulate topology, an error occurred.
+		Please try again.  If the bug persists, please submit your code and a bug report via the
+		ticketing system.
+		*/
+
+		return 0;
+	}
+
+	//Perform topological check -- just pass a general node
+	ext_result = ((int (*)(OBJECT *, int, bool))(*relfunc))(fault_check_object,0,false);
+
+	//Make sure it worked
+	if (ext_result != 1)
+	{
+		gl_error("Unable to update topology for fusing action");
+		//defined above
+
+		return 0;
+	}
+
+	//If we made it this far, assumed it worked
+	return 1;
 }
 
 //Function to externally set fuse status - mainly for "out of step" updates under NR solver

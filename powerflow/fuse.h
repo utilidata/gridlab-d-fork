@@ -38,6 +38,7 @@ public:
 	void set_fuse_full_reliability(unsigned char desired_status);
 	void set_fuse_faulted_phases(unsigned char desired_status);
 	void fuse_sync_function(void);	//Functionalized since it exists in two spots - no sense having to update two pieces of code
+	int fuse_mesh_method_change(unsigned char blown_phases,bool blow_restore);
 	OBJECT **get_object(OBJECT *obj, char *name);	//Function to pull object property - reliability use
 
 	double current_limit;		//Current limit for fuses blowing
