@@ -137,9 +137,9 @@ public:
 	void lmatrix_vmult(complex *matrix_in, complex *vector_in, complex *vector_out, int matsize);
 
 	// Fault current calculation functions
-	void fault_current_calc(complex C[7][7], unsigned int removed_phase, double fault_type); // function traces up from fault to swing bus summing up the link objects' impedances
+	void fault_current_calc(complex C[7][7], unsigned int removed_phase, int fault_type); // function traces up from fault to swing bus summing up the link objects' impedances
 											  // then calculates the fault current then passes that value back down to the faulted link objects.
-	void mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth,double fault_type);
+	void mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth, int fault_type);
 	SIMULATIONMODE inter_deltaupdate_link(unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
 
 private:

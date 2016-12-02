@@ -51,6 +51,13 @@ typedef struct s_ext_fxn {
 	void *ext_destroy;
 } EXT_LU_FXN_CALLS;
 
+//Structure for fault information - mostly for quicker handling of them
+typedef struct FAULT_SOURCE {
+	int fault_number;		//Number this fault was assigned, to see which we are
+	int branch_reference;	//NR_branchdata reference for the initiator of the fault
+	FAULT_SOURCE *next;	//Pointer to the next fault source object
+} FAULT_SOURCE;
+
 GLOBAL char256 LUSolverName INIT("");				/**< filename for external LU solver */
 GLOBAL EXT_LU_FXN_CALLS LUSolverFcns;				/**< links to external LU solver functions */
 GLOBAL SOLVERMETHOD solver_method INIT(SM_FBS);		/**< powerflow solver methodology */
@@ -88,12 +95,14 @@ GLOBAL bool require_voltage_control INIT(false);	/**< flag to enable voltage con
 GLOBAL double geographic_degree INIT(0.0);			/**< topological degree factor */
 GLOBAL complex fault_Z INIT(complex(1e-6,0));		/**< fault impedance */
 GLOBAL complex ground_Z INIT(complex(1e-6,0));		/**< ground impedance */
+GLOBAL int curr_fault_number INIT(1);				/**< tracking variable - current fault implemented count */
 GLOBAL double default_maximum_voltage_error INIT(1e-6);	/**< default sync voltage convergence limit [puV] */
 GLOBAL double default_maximum_power_error INIT(0.0001);	/**< default power convergence limit for multirun */
 GLOBAL OBJECT *restoration_object INIT(NULL);		/**< restoration object of the system */
 GLOBAL OBJECT *fault_check_object INIT(NULL);		/**< fault_check object of the system */
 GLOBAL bool meshed_fault_checking_enabled INIT(false);	/*** fault_check object flag for possible meshing -- adjusts how reliability-related code runs */
 GLOBAL bool restoration_checks_active INIT(false);	/***< Overall flag for when reconfigurations are occurring - special actions in devices */
+GLOBAL FAULT_SOURCE *fault_linked_list INIT(NULL);	/**< Pointer for fault status linked list */
 
 GLOBAL bool enable_subsecond_models INIT(false);		/* normally not operating in delta mode */
 GLOBAL bool all_powerflow_delta INIT(false);			/* Flag to make all powerflow objects participate in deltamode -- otherwise is individually flagged per object */
@@ -122,6 +131,12 @@ GLOBAL bool enable_mesh_fault_current INIT(false);	/** Flag to enable mesh-based
 // Deltamode stuff
 void schedule_deltamode_start(TIMESTAMP tstart);	/* Anticipated time for a deltamode start, even if it is now */
 int delta_extra_function(unsigned int mode);
+
+//Fault handling items
+int add_fault_to_linked_list(int branch_reference);
+int del_fault_from_linked_list(int fault_num);
+int search_linked_list_for_fault(int fault_num, unsigned char *phase_vals);
+int depopulate_fault_arrays(int fault_number, bool removal_type);
 
 /* used by many powerflow enums */
 #define UNKNOWN 0

@@ -498,6 +498,361 @@ int delta_extra_function(unsigned int mode)
 	return 1;	
 }
 
+// Fault linked-list handling items - put here so anyone can access them
+// Adding function -- adds a fault to the list - returns the fault number
+// branch_reference is the NR_branchdata entry for the object that called this
+int add_fault_to_linked_list(int branch_reference)
+{
+	FAULT_SOURCE *searching_source;
+	FAULT_SOURCE *temp_source;
+	int fault_value;
+
+	//Create a new fault_sourcing object
+	temp_source = (FAULT_SOURCE *)gl_malloc(sizeof(FAULT_SOURCE));
+
+	//Make sure it worked
+	if (temp_source == NULL)
+	{
+		gl_error("Failed to allocate linked-list entry for fault handling");
+		/*  TROUBLESHOOT
+		While attempting to add a fault into the fault-tracking linked-list, an error was
+		encountered.  Please try again.  If the error persists, please submit your code, model,
+		and a description via the ticketing system.
+		*/
+		return -1;
+	}
+
+	//Lock, since multiple devices may call
+	LOCK_OBJECT(NR_swing_bus);
+
+	//Get the "current fault"
+	fault_value = curr_fault_number;
+
+	//Increment the "fault counter"
+	curr_fault_number++;
+
+	//Populate us
+	temp_source->branch_reference = branch_reference;
+	temp_source->fault_number = fault_value;
+	temp_source->next = NULL;
+
+
+	//See if we're the first one or not
+	if (fault_linked_list == NULL)
+	{
+		//Just point us in
+		fault_linked_list = temp_source;
+	}
+	else	//Not the first one, find the end
+	{
+		//Align the pointer
+		searching_source = fault_linked_list;
+
+		//Progress until we reach the end
+		while (searching_source->next != NULL)
+		{
+			//Get the next one
+			searching_source = searching_source->next;
+		}
+
+		//Now add us in
+		searching_source->next = temp_source;
+	}
+
+	//Unlock the swing
+	UNLOCK_OBJECT(NR_swing_bus);
+
+	//Made it here, return our value
+	return fault_value;
+}
+
+//Delete the fault from the linked list
+// fault_num is the assigned fault number for the fault
+// Returns a -1 for a failure, a 1 for a success
+int del_fault_from_linked_list(int fault_num)
+{
+	FAULT_SOURCE *searching_source;
+	FAULT_SOURCE *found_value;
+	FAULT_SOURCE *previous_source;
+
+	//Set initial conditions
+	found_value = NULL;
+
+	//Lock the swing - no one should alter the list while we're in it!
+	LOCK_OBJECT(NR_swing_bus);
+
+	//Make sure the list exists - we can't delete if no faults ever occurred!
+	if (fault_linked_list == NULL)
+	{
+		gl_error("Fault linked list is empty - there's no fault to delete!");
+		/*  TROUBLESHOOT
+		An attempt was made to delete a fault that doesn't exist.  Check your code and try again.
+		*/
+
+		//Unlock the swing before we leave
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return -1;
+	}
+
+	//Align the pointer
+	searching_source = fault_linked_list;
+	previous_source = NULL;
+
+	//Loop
+	while (searching_source != NULL)
+	{
+		//See if it is us
+		if (searching_source->fault_number == fault_num)
+		{
+			//Flag us
+			found_value = searching_source;
+
+			//Exit the while
+			break;
+		}
+		else
+		{
+			previous_source = searching_source;
+			searching_source = searching_source->next;
+		}
+	}//End searching while
+
+	//See if we found something
+	if (found_value == NULL)
+	{
+		gl_error("Desired fault not found for deletion from linked list");
+		/*  TROUBLESHOOT
+		The linked list was searched for the fault specified, but reached the end without finding it.
+		some other object may have found it and removed it already.  Please check your code and try again.
+		*/
+
+		//Unlock the swing before we leave
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return -1;
+	}
+	else	//Free us up
+	{
+		//See if we were the very first one or not
+		if (previous_source == NULL)	//Yes
+		{
+			//Map the pointer to our next one
+			fault_linked_list = found_value->next;
+		}
+		else	//No
+		{
+			//Point the previous to our next
+			previous_source->next = found_value->next;
+		}
+
+		//Free us
+		gl_free(found_value);
+	}
+
+	//Unlock the swing before we leave
+	UNLOCK_OBJECT(NR_swing_bus);
+
+	//If we made it this far, we had to have succeeded
+	return 1;
+}
+
+//Search function - see which branch initiated a fault and provide its phase status
+//Set the phase status and return the initiating branch
+//-1 = error, 0 = not found
+int search_linked_list_for_fault(int fault_num, unsigned char *phase_vals)
+{
+	int branch_number;
+	FAULT_SOURCE *searching_source;
+
+	//Lock the swing for the search - no updating while we're looking!
+	LOCK_OBJECT(NR_swing_bus);
+
+	//Make sure the list exists
+	if (fault_linked_list == NULL)
+	{
+		gl_verbose("Fault list is empty - fault not found");
+		/*  TROUBLESHOOT
+		While attempting to search for a fault on a system, an empty list
+		was encountered, indicating no faults are present.
+		 */
+
+		*phase_vals = 0x00;
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return 0;
+	}
+	else
+	{
+		//Set the initial value
+		searching_source = fault_linked_list;
+
+		//Progress through
+		while (searching_source != NULL)
+		{
+			if (searching_source->fault_number == fault_num)
+			{
+				//Set the branch number
+				branch_number = searching_source->branch_reference;
+
+				//Pull it's base phases
+				*phase_vals = NR_branchdata[branch_number].phases;
+
+				//Unlock swing before exiting
+				UNLOCK_OBJECT(NR_swing_bus);
+
+				//Return the number
+				return branch_number;
+			}
+			else	//Not it
+			{
+				//Update pointer
+				searching_source = searching_source->next;
+			}
+		}//End while
+
+		//If we made it down here, we failed
+		gl_verbose("Fault not found in list");
+		/*  TROUBLESHOOT
+		While looking through the fault-condition linked list, the desired fault was not
+		found.
+		*/
+
+		*phase_vals = 0x00;
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return 0;
+	}
+}
+
+//Function to be called to see if a fault location/faulted object was
+//disabled by a topological action or a "release" action.
+//fault_number is the global fault number in the linked-list to handle
+//removal_type - true is "search for the faulted object and see if it has phases", then decide
+//				 false is the fault is over, remove all instances of it from NR_branchdata
+//
+// Returns fail/success
+int depopulate_fault_arrays(int fault_number, bool removal_type)
+{
+	unsigned int branch_idx_val;
+	FAULT_SOURCE *searching_source;
+	int branch_found_idx;
+	char small_index;
+	unsigned char temp_phases;
+
+	//See which mode we're in
+	if (removal_type == false)	//Get rid of all references mode
+	{
+		//No need to search -- this should be called when link_fault_off has occurred
+		//Just de-populate them all
+		for (branch_idx_val=0; branch_idx_val < NR_branch_count; branch_idx_val++)
+		{
+			//Check all of the entries
+			if (NR_branchdata[branch_idx_val].fault_inplace[0] == fault_number)
+			{
+				NR_branchdata[branch_idx_val].fault_inplace[0] = 0;
+			}
+
+			if (NR_branchdata[branch_idx_val].fault_inplace[1] == fault_number)
+			{
+				NR_branchdata[branch_idx_val].fault_inplace[1] = 0;
+			}
+
+			if (NR_branchdata[branch_idx_val].fault_inplace[2] == fault_number)
+			{
+				NR_branchdata[branch_idx_val].fault_inplace[2] = 0;
+			}
+		}//End loop
+	}
+	else	//"Smart population" mode
+	{
+		//Search for the fault in the list - let's see which link it was associated with
+		//Make sure the list isn't empty first
+		if (fault_linked_list == NULL)
+		{
+			gl_error("Fault to clear not found in system, no action taken");
+			/*  TROUBLESHOOT
+			While attempting to remove "cleared" faulted components, the fault in question
+			could not be found in the system.  Please check your code and try again.
+			*/
+
+			return FAILED;
+		}
+		else
+		{
+			//Initialize
+			branch_found_idx = -1;
+
+			//Assign us in
+			searching_source = fault_linked_list;
+
+			//Progress and find us
+			while (searching_source != NULL)
+			{
+				//See if we're the one
+				if (searching_source->fault_number == fault_number)
+				{
+					//Grab the value
+					branch_found_idx = searching_source->branch_reference;
+
+					//Break us out of the while
+					break;
+				}
+				else	//Keep looking
+				{
+					searching_source = searching_source->next;
+				}
+			}//End searching while
+
+			//Make sure we found something
+			if (branch_found_idx == -1)
+			{
+				gl_error("Fault to clear not found in system, no action taken");
+				//Defined above
+
+				return FAILED;
+			}
+
+			//See which phases (if any) of this branch were faulted
+			for (small_index=0; small_index<3; small_index++)
+			{
+				if (NR_branchdata[branch_found_idx].fault_inplace[small_index] == fault_number)
+				{
+					//Set the phase mask
+					temp_phases = 0x04 >> small_index;
+
+					//See if we have this phase - note this may need to be adjusted, if we ever support triplex
+					if ((NR_branchdata[branch_found_idx].phases & temp_phases) != temp_phases)	//We don't which is good
+					{
+						//This phase was removed, which implies that this particular phase of the whole fault is no longer present
+						//Loop the list and remove all references to it (except the faulted device)
+						for (branch_idx_val=0; branch_idx_val < NR_branch_count; branch_idx_val++)
+						{
+							//Check all of the entries - except ourselves (leave that one)
+							if ((NR_branchdata[branch_idx_val].fault_inplace[small_index] == fault_number) && (branch_idx_val != branch_found_idx))
+							{
+								NR_branchdata[branch_idx_val].fault_inplace[small_index] = 0;
+							}
+							//Default else - not faulted, different fault, or we're teh "origination bus"
+						}//End selective FOR loop
+
+					}//End not a valid phase
+					//Default else - we do, which means this phase fault is still valid
+				}
+				//Default else -- not this phase, continue to the next
+			}//End loop
+		}//End linked list exists
+	}//End selective removal mode
+
+	//If we made it this far, assume success
+	return SUCCESS;
+}
+
+
 CDECL int do_kill()
 {
 	/* if global memory needs to be released, this is a good time to do it */

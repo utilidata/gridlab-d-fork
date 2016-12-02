@@ -939,7 +939,9 @@ void fuse::fuse_sync_function(void)
 int fuse::fuse_mesh_method_change(unsigned char blown_phases,bool blow_restore)
 {
 	FUNCTIONADDR relfunc = NULL;
-	int ext_result;
+	int ext_result, temp_branch_number;
+	unsigned char temp_phases;
+	char indexval;
 
 	if (blow_restore == true)
 	{
@@ -951,7 +953,7 @@ int fuse::fuse_mesh_method_change(unsigned char blown_phases,bool blow_restore)
 	}
 	else
 	{
-		//Remove the appropriate phases
+		//Add the appropriate phases
 		NR_branchdata[NR_branch_reference].phases |= (blown_phases & 0x07);
 
 		//Flag these as faulted stuff
@@ -993,6 +995,43 @@ int fuse::fuse_mesh_method_change(unsigned char blown_phases,bool blow_restore)
 
 		return 0;
 	}
+
+	//If we were in "blow" mode, see if we cleared out fault
+	if (blow_restore == true)
+	{
+		//See if we have a fault on a phase blown
+		for (indexval=0; indexval<3; indexval++)
+		{
+			temp_phases = 0x04 >> indexval;
+
+			if ((blown_phases & temp_phases) == temp_phases)	//This was an altered phase
+			{
+				//See if we have a fault
+				if (NR_branchdata[NR_branch_reference].fault_inplace[indexval] != 0)
+				{
+					//Perform a "special search/removal" on that fault
+					ext_result = depopulate_fault_arrays(NR_branchdata[NR_branch_reference].fault_inplace[indexval], true);
+
+					//Make sure it worked
+					if (ext_result != SUCCESS)
+					{
+						gl_error("Unable to properly depopulate fault arrays after fuse blow");
+						/*  TROUBLESHOOT
+						While attempting to update the fault current calculation after a fuse blow,
+						an error was encountered.  Please check your code and try again.  If the error persists,
+						please submit your code and a bug report via the ticketing system.
+						*/
+
+						return 0;
+					}
+
+					//Get us out of this FOR - we found one, good enough
+					break;
+				}
+				//Default else - it is zero, so something "normal" must have blown us
+			}//End valid phase
+		}//End FOR over phases
+	}//End was a blow command
 
 	//If we made it this far, assumed it worked
 	return 1;

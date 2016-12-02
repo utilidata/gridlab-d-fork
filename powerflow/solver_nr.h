@@ -68,17 +68,18 @@ typedef struct {
 	complex *If_to;			///< 3 phase fault currents on the to side 
 	FUNCTIONADDR limit_check;	////< Link to overload checking function (calculate_overlimit_link) -- restoration related
 	FUNCTIONADDR ExtraDeltaModeFunc;	///< Link to extra functions of deltamode -- notably, transformer saturation
+	int fault_inplace[3];	///< 3 phase fault tracking, numerically, to know when to remove it
 } BRANCHDATA;
 
 typedef struct Y_NR{
 	int row_ind;  ///< row location of the element in 6n*6n Y matrix in NR solver
-	int	col_ind;  ///< collumn location of the element in 6n*6n Y matrix in NR solver
+	int	col_ind;  ///< column location of the element in 6n*6n Y matrix in NR solver
     double Y_value; ///< value of the element in 6n*6n Y matrix in NR solver
 } Y_NR;
 
 typedef struct {
 	int row_ind;  ///< row location of the element in n*n bus admittance matrix in NR solver
-	int	col_ind;  ///< collumn location of the element in n*n bus admittance matrix in NR solver
+	int	col_ind;  ///< column location of the element in n*n bus admittance matrix in NR solver
     complex Y[3][3]; ///< complex value of elements in bus admittance matrix in NR solver
 	char size;		///< size of the admittance diagonal - assumed square, useful for smaller size
 } Bus_admit;

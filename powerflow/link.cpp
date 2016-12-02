@@ -2062,6 +2062,7 @@ void link_object::NR_link_presync_fxn(void)
 //Presync call
 TIMESTAMP link_object::presync(TIMESTAMP t0)
 {
+	int looping_index;
 	TIMESTAMP t1 = powerflow_object::presync(t0); 
 
 	if (solver_method==SM_NR)
@@ -2248,6 +2249,11 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 				//link If_in and If_out
 				NR_branchdata[NR_branch_reference].If_from = &If_in[0];
 				NR_branchdata[NR_branch_reference].If_to = &If_out[0];
+
+				//Ensure the current status is "unfaulted"
+				NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+				NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+				NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
 
 				if (SpecialLnk == SWITCH)	//If we're a fuse or switch, make sure our "open" phases are correct
 				{
@@ -2442,7 +2448,7 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 			}
 
 			//Figure out what type of link we are and populate accordingly
-			if ((gl_object_isa(obj,"transformer","powerflow")) || (gl_object_isa(obj,"regulator","powerflow")))	//Tranformer check
+			if ((gl_object_isa(obj,"transformer","powerflow")) || (gl_object_isa(obj,"regulator","powerflow")))	//Transformer check
 			{
 				NR_branchdata[NR_branch_reference].lnk_type = 4;
 			}
@@ -2634,14 +2640,30 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 		//Update time variable if necessary
 		if (prev_LTime != t0)
 		{
-			//Check to see if a SC has occured and zero out the fault current - putting in here so reiterations don't break it
-			if(If_in[0] != 0 || If_in[1] != 0 || If_in[2] != 0){
-				If_in[0] = 0;
-				If_in[1] = 0;
-				If_in[2] = 0;
-				If_out[0] = 0;
-				If_out[1] = 0;
-				If_out[2] = 0;
+			//See which type of checking method we're using
+			if (meshed_fault_checking_enabled == true)
+			{
+				//Determine which fault variables to zero out -- assumes "three-phase", but that should be okay
+				for (looping_index=0; looping_index<3; looping_index++)
+				{
+					if (NR_branchdata[NR_branch_reference].fault_inplace[looping_index] == 0)
+					{
+						If_in[looping_index] = complex(0.0,0.0);
+						If_out[looping_index] = complex(0.0,0.0);
+					}
+				}
+			}
+			else	//"Standard" old method
+			{
+				//Check to see if a SC has occured and zero out the fault current - putting in here so reiterations don't break it
+				if(If_in[0] != 0 || If_in[1] != 0 || If_in[2] != 0){
+					If_in[0] = 0;
+					If_in[1] = 0;
+					If_in[2] = 0;
+					If_out[0] = 0;
+					If_out[1] = 0;
+					If_out[2] = 0;
+				}
 			}
 
 			prev_LTime=t0;
@@ -4795,7 +4817,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 	OBJECT *tmpobj;
 	FUNCTIONADDR funadd = NULL;
 	double *Recloser_Counts;
-	double type_fault;
+	int type_fault;
 	bool switch_val;
 	complex C_mat[7][7];
 	int64 pf_resultval;
@@ -9264,7 +9286,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 	unsigned char phase_restore = 0x00;	//Default is no phases restored
 	unsigned char temp_phases, temp_phases_B, work_phases;			//Working variable
 	char phaseidx, indexval;
-	int temp_node, ext_result;
+	int temp_node, ext_result, temp_fault_number, ret_value;
 	double ext_result_dbl;
 	OBJECT *objhdr = OBJECTHDR(this);
 	OBJECT *tmpobj;
@@ -10571,6 +10593,181 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 				break;
 		}//end switch
 
+		//Only do this if in "meshed mode"
+		if (meshed_fault_checking_enabled == true)
+		{
+			//If we were of the proper range, delete our fault from the list
+			if ((*implemented_fault <= 10) || (*implemented_fault >= 32))
+			{
+				//Initial number
+				temp_fault_number = 0;
+
+				//Determine our number
+				switch (*implemented_fault) {
+					case 1:	//SLG-A
+					{
+						//Get the number
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+
+						break;
+					}
+					case 2:	//SLG-B
+					{
+						//Get the number
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[1];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+
+						break;
+					}
+					case 3:	//SLG-C
+					{
+						//Get the number
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[2];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 4:	//DLG-AB
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+
+						break;
+					}
+					case 5:	//DLG-BC
+					{
+						//Get the number - B will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[1];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 6:	//DLG-CA
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 7:	//LL-AB
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+
+						break;
+					}
+					case 8:	//LL-BC
+					{
+						//Get the number - B will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[1];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 9:	//LL-CA
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 10:	//TLG
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					case 32:	//TLL
+					{
+						//Get the number - A will work
+						temp_fault_number = NR_branchdata[NR_branch_reference].fault_inplace[0];
+
+						//Zero our faulted area
+						NR_branchdata[NR_branch_reference].fault_inplace[0] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[1] = 0;
+						NR_branchdata[NR_branch_reference].fault_inplace[2] = 0;
+
+						break;
+					}
+					default:	//All other cases - we shouldn't be here
+					{
+						GL_THROW("Error while removing a fault from the tracking vectors");
+						/*  TROUBLESHOOT
+						While attempting to remove a fault from the system, the tracking vector
+						routine was entered when it probably didn't need to be.  This can cause
+						problems.  Please try again.  If the error persists, please submit your
+						code and a bug report via the ticketing system.
+						*/
+						break;
+					}
+				}//End switch/case
+
+				//Now delete it from the linked list
+				ret_value = del_fault_from_linked_list(temp_fault_number);
+
+				//Make sure it worked
+				if (ret_value != 1)
+				{
+					GL_THROW("Unable to delete fault from linked list");
+					/*  TROUBLESHOOT
+					While attempting to remove a fault's reference from the tracking linked list,
+					an error occurred.  Please check your code.  If the error persists, please submit
+					your code and a bug report via the ticketing system.
+					*/
+				}
+
+				//And call the routine to make sure it is completely gone
+				ret_value = depopulate_fault_arrays(temp_fault_number, false);
+
+				//Make sure it worked
+				if (ret_value == FAILED)
+				{
+					GL_THROW("Failed to properly remove all instances of fault");
+					/*  TROUBLESHOOT
+					While attempting to remove a completed fault, an error occurred.  Please
+					try again.  If the error persists, please submit you code and a bug report
+					via the ticketing system.
+					*/
+				}
+				//Default else - worked fine
+			}//Proper fault range
+		}//End meshed fault mode only
+
 		//Flag an update if something changed (not a 0 state)
 		if ((*implemented_fault >= 18) && (*implemented_fault <= 24))
 		{
@@ -10638,7 +10835,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 	//VSth = Swing-node voltage. It is a 3x1 matrix
 	//fault_type = Currently it is not used but it might come to some good use when adding all faults.
 
-void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth,double fault_type)
+void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth, int fault_type)
 	{
 		int phaseCheck;
 		phaseCheck = 0;
@@ -10867,12 +11064,14 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 			}
 }
 
-void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase, double fault_type)
+void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase, int fault_type)
 {
-	int temp_branch_fc, temp_node, current_branch, temp_connection_type;;
+	int temp_branch_fc, temp_node, current_branch, temp_connection_type;
+	int fault_number;
 	unsigned int temp_table_loc;
 	unsigned char temp_branch_phases;
 	char *temp_branch_name;
+	char misc_index;
 	OBJECT *temp_transformer, **temp_transformer_configuration;
 	PROPERTY *temp_trans_config, *temp_con_typ;
 	double temp_v_ratio;
@@ -10893,6 +11092,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	complex zz[7];
 	complex xx[7];
 	complex det;
+	int fault_pop_vect[3];
 
 	// zero Z_thevenin !
 	Z_thevenin[0][0]=Z_thevenin[0][1]=Z_thevenin[0][2]=Z_thevenin[1][0]=Z_thevenin[1][1]=Z_thevenin[1][2]=Z_thevenin[2][0]=Z_thevenin[2][1]=Z_thevenin[2][2]=0;
@@ -10901,7 +11101,131 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	temp_node = NR_branchdata[temp_branch_fc].from;
 	NR_branchdata[temp_branch_fc].fault_link_below = -1; //-1 indicates that temp_branch_fc is the faulted link object 
 
-	
+	//Contain the "new code" in a check - otherwise it breaks old autotests
+	if (meshed_fault_checking_enabled == true)	//Mesh mode
+	{
+		//Pre-empty the fault_pop_vect with zeros
+		fault_pop_vect[0] = 0;
+		fault_pop_vect[1] = 0;
+		fault_pop_vect[2] = 0;
+
+		//Determine if we need a fault number
+		if ((fault_type <= 10) || (fault_type == 32))
+		{
+			//Obtain the fault number (and add it to the linked list)
+			fault_number = add_fault_to_linked_list(NR_branch_reference);
+
+			//Make sure it worked properly
+			if (fault_number < 0)
+			{
+				GL_THROW("Error initiating fault in linked list");
+				/*  TROUBLESHOOT
+				While attempting to add a fault condition to the powerflow faulted object linked list, an error
+				was encountered.  Please try again.  If the error persists, please submit your code and a bug report
+				via the ticketing system.
+				*/
+			}
+		}
+		else	//Other type of fault - we don't need a special number
+		{
+			fault_number = 0;
+		}
+
+		//Determine the fault type and set the "fault-present" vector appropriately (for use later)
+		switch (fault_type) {
+			case 1:	//SLG-A
+			{
+				fault_pop_vect[0] = fault_number;
+				break;
+			}
+			case 2:	//SLG-B
+			{
+				fault_pop_vect[1] = fault_number;
+				break;
+			}
+			case 3:	//SLG-C
+			{
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 4:	//DLG-AB
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[1] = fault_number;
+				break;
+			}
+			case 5:	//DLG-BC
+			{
+				fault_pop_vect[1] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 6:	//DLG-CA
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 7:	//LL-AB
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[1] = fault_number;
+				break;
+			}
+			case 8:	//LL-BC
+			{
+				fault_pop_vect[1] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 9:	//LL-CA
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 10:	//TLG
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[1] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			case 32:	//TLL
+			{
+				fault_pop_vect[0] = fault_number;
+				fault_pop_vect[1] = fault_number;
+				fault_pop_vect[2] = fault_number;
+				break;
+			}
+			default:	//All other cases - they don't actually cause a fault current
+			{
+				break;
+			}
+		}//End switch/case
+
+		//Populate the current branch, before we move on
+		//Populate the fault numbering item, as we move up
+		for (misc_index=0; misc_index<3; misc_index++)
+		{
+			if (fault_pop_vect[misc_index] != 0)
+			{
+				//Make sure we're not already populated
+				if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+				{
+					//Error - how did we fault an already faulted branch!?
+					GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+					//Define below
+				}
+				else	//Just copy us in
+				{
+					NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+				}
+			}
+			//Default else - it's zero, ignore it
+		}
+	}//End meshed topology mode enabled
+
 	// loop that traces the SC path to the swing bus
 	while (NR_busdata[temp_node].type != 2)
 	{
@@ -10916,6 +11240,33 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 				//Go up to the next level
 				temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
 				NR_branchdata[temp_branch_fc].fault_link_below = current_branch;
+
+				if (meshed_fault_checking_enabled == true)	//Only do this with the "new routine"
+				{
+					//Populate the fault numbering item, as we move up
+					for (misc_index=0; misc_index<3; misc_index++)
+					{
+						if (fault_pop_vect[misc_index] != 0)
+						{
+							//Make sure we're not already populated
+							if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+							{
+								//Error - how did we fault an already faulted branch!?
+								GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+								/*  TROUBLESHOOT
+								While attempting to populate the flag for a fault condition, and existing fault was found.  This should not
+								happen.  Please check your code and try again.  If the error persists, or if you are using a base copy of
+								GridLAB-D, please submit your files and a bug report via the ticketing system.
+								*/
+							}
+							else	//Just copy us in
+							{
+								NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+							}
+						}
+						//Default else - it's zero, ignore it
+					}
+				}//End meshed topology routine
 				break;	//Out of this for we go!
 			}//End it is a to-end
 			//Default else - it must be a from, just proceed
@@ -11685,7 +12036,7 @@ void lu_decomp(complex *a, complex *l, complex *u, int size_val)
 			u[n*size_val+m] = complex(0,0);
 		}
 	}
-	// for loop to decompose a in to lower triangular matrix l and upper triangular matirx u
+	// for loop to decompose a in to lower triangular matrix l and upper triangular matrix u
 	for(k=0; k<size_val; k++){
 		l[k*size_val+k] = complex(1,0);
 		for(m=k; m<size_val; m++){
