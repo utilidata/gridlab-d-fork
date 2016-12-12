@@ -28,6 +28,7 @@ typedef struct  {
 	complex *house_var;		///< Extra variable - used mainly for nominal house current 
 	int *Link_Table;		///< table of links that connect to us (for population purposes)
 	unsigned int Link_Table_Size;	///< Number of entries in the link table (number of links connected to us)
+	int link_directConnect[3]; /// <index indicateing the upstream link directly connected to the node object
 	double PL[3];			///< real power component of total bus load
 	double QL[3];			///< reactive power component of total bus load
 	bool *dynamics_enabled;	///< Flag indicating this particular node has a dynamics contribution function
@@ -58,7 +59,8 @@ typedef struct {
 	unsigned char faultphases;	///< Flags for induced faults - used to prevent restoration of objects that should otherwise still be broken
 	int from;				///< index into bus data
 	int to;					///< index into bus data
-	int fault_link_below;    ///< index indicating next faulted link object below the current link object
+	int fault_link_below[3];    ///< index indicating next faulted link object below the current link object
+	bool isParallel;
 	enumeration *status;	///< status of the object, if it is a switch (restoration module usage)
 	unsigned char lnk_type;	///< type of link the object is - 0 = UG/OH line, 1 = Triplex line, 2 = switch, 3 = fuse, 4 = transformer, 5 = sectionalizer, 6 = recloser
 	double v_ratio;			///< voltage ratio (v_from/v_to)

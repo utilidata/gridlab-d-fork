@@ -139,6 +139,9 @@ public:
 	// Fault current calculation functions
 	void fault_current_calc(complex C[7][7], unsigned int removed_phase, int fault_type); // function traces up from fault to swing bus summing up the link objects' impedances
 											  // then calculates the fault current then passes that value back down to the faulted link objects.
+	void getDwLinkCurr_parallel (int temp_branch_fc); // function obtains the current from downstream paralleled link
+	void getDwLinkCurr (int temp_branch_fc); // function obtains the to node current for the link with index temp_branch_fc
+
 	void mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth, int fault_type);
 	SIMULATIONMODE inter_deltaupdate_link(unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
 

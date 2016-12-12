@@ -23,7 +23,12 @@ public:
 	recloser(MODULE *mod);
 	inline recloser(CLASS *cl=oclass):switch_object(cl){};
 	int isa(char *classname);
+
 	TIMESTAMP sync(TIMESTAMP t0);
+
+	double cal_t_operation(double_array* TCC, int numPts, double I_fault);
+	double fmax(double a, double b);
+	double fmax_3(double a, double b, double c);
 
 	double retry_time;
 	double ntries;
@@ -31,6 +36,7 @@ public:
 	int64 return_time;
 
 	// Implement new parameters for protection coordination study
+	// Recloser paramters
 	double Irated; // Continuous current rating
 	double Ishort; // short-time current rating
 	double tshort; //short-time operation time
@@ -42,7 +48,18 @@ public:
 	GL_STRUCT(double_array,fastTCC); // Phase fast curve: double array storing current and operation time
 	GL_STRUCT(double_array,slowTCC); // Slow fast curve: double array storing current and operation time
 
+	// Recloser operation variables
+	bool Flag_open; //Flag indicating opening the recloser
+	bool Flag_lock; //Flag indicating lock out the recloser after the recloser opens
+	int count_fast; //Count of fast curve operations
+	int count_slow; //Count of slow curve operations
+	TIMESTAMP t_open; //Time to open the recloser
+	TIMESTAMP t_close; //Time to open the recloser
+	TIMESTAMP t_fault; //Time at which recloser sees over-current event
+	double Iseen[3]; //Current seen by recloser
+
 	friend class resilCoord;
+	friend class jsonreader;
 
 private:
 	TIMESTAMP prev_rec_time;

@@ -128,13 +128,24 @@ int recloser::init(OBJECT *parent)
 		return_time = (TIMESTAMP)floor(retry_time + 0.5);
 	}
 
+	// Give initial values to recloser operation variables:
+	Flag_open = false;
+	Flag_lock = false;
+	count_fast = lockout_fast;
+	count_slow = lockout_slow;
+	t_fault = TS_NEVER;
+	t_open = TS_NEVER;
+	t_close = 0;
+	Iseen[0] = Iseen[1] = Iseen[2] = 0;
+
+	// Try double_array working or not
 	unsigned int rowNum = fastTCC.get_rows();
 	unsigned int colNum = fastTCC.get_cols();
 	double *test = fastTCC.get_addr(0,0);
 
-	int t = 0;
-
-
+	double_array* try_double_array = new double_array (2, 3);
+	try_double_array->set_at(0, 0, 3.0);
+	try_double_array->set_at(0, 1, 5.0);
 
 
 	return result;
@@ -143,14 +154,330 @@ int recloser::init(OBJECT *parent)
 //sync function - serves only to reset number of tries
 TIMESTAMP recloser::sync(TIMESTAMP t0)
 {
-	//Check and update time
-	if (prev_rec_time != t0)
+//	//Check and update time
+//	if (prev_rec_time != t0)
+//	{
+//		prev_rec_time = t0;
+//		curr_tries = 0.0;
+//	}
+//
+//	return switch_object::sync(t0);
+
+	TIMESTAMP t_return = TS_NEVER; // Time to return in presync, will be changed based on controlled device operation time
+	FUNCTIONADDR funadd = NULL;
+	int ext_result;
+	switch_object *pswitch;
+
+	switch_object::sync(t0);
+
+	// if the switch phases are all closed:
+	if ((phase_A_state == 1 && phase_B_state == 1 && phase_C_state == 1))
 	{
-		prev_rec_time = t0;
-		curr_tries = 0.0;
+		// Recloser has not yet planned to open
+		if (Flag_open == false) {
+
+			// If current seen by the recloser is larger than the Ishort current
+			if (If_in[0].Mag()>Ishort || If_in[1].Mag()>Ishort || If_in[2].Mag()>Ishort)
+			{
+				t_fault = t0; // record the fault occuring time
+				t_open = t0 + (TIMESTAMP)(tshort); // Recloser will be opened at t_open time later
+				Flag_open= true;
+
+				if (count_fast > 0)
+				{
+					count_fast--;
+				}
+				else
+				{
+					count_slow--;
+
+					// Lock the controller if all the tries have been run out
+					if (count_slow == 0) Flag_lock = true;
+
+				}
+			}
+
+			// If current seen by the recloser is larger than the trip current
+			else if (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)
+			{
+				double maxIf = fmax_3(If_in[0].Mag(), If_in[1].Mag(), If_in[2].Mag());
+
+				// if fast recloser has not being locked yet
+				if (count_fast > 0)
+				{
+					unsigned int rowNum = fastTCC.get_rows();
+					unsigned int colNum = fastTCC.get_cols();
+					double t_operation = -1.0; // Give a negative value at the begining
+
+					double_array* temp = &(fastTCC);
+					int test = temp->get_rows();
+
+					t_operation = cal_t_operation(&(fastTCC), colNum, maxIf);
+
+					t_fault = t0; // record the fault occuring time
+					t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+					Flag_open = true;
+
+					count_fast--; // Count the fast-curve operation
+				}
+				else
+				{
+					unsigned int rowNum = slowTCC.get_rows();
+					unsigned int colNum = slowTCC.get_cols();
+					double t_operation = -1.0; // Give a negative value at the begining
+
+					t_operation = cal_t_operation(&(slowTCC), colNum, maxIf);
+
+					t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+					Flag_open = true;
+
+					count_slow--; // Count the slow-curve operation
+
+					// If count of slow is zero, the recloser will be locked after opening
+					if (count_slow == 0) {
+						Flag_lock = true;
+					}
+				}
+			}
+
+			if (t_return > t_open) {
+				t_return = t_open; // Will go to the t_open time to open the recloser
+			}
+
+		}
+
+		// If flag_open is true and recloser will be open at t_open
+		else {
+			// After setting flag_open as true, iteration of the same time step comes to this part before time reaches t_open.
+			// Need to set the return time to t_open again, or the time to open the recloser will not be reached
+			if (t0 < t_open) {
+				t_return = t_open;
+			}
+			// If current time is t_open, and the fault current seen is still larger than the recloser trip current
+			if (t0 == t_open && (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)) {
+
+				enumeration phase_A_state_check1 = phase_A_state;
+				enumeration phase_B_state_check1 = phase_B_state;
+				enumeration phase_C_state_check1 = phase_C_state;
+
+				// Assume now recloser is always banked switch
+				set_switch(false);
+
+				// Make sure set_switch works
+				phase_A_state_check1 = phase_A_state;
+				phase_B_state_check1 = phase_B_state;
+				phase_C_state_check1 = phase_C_state;
+
+				NR_admit_change = true;
+
+				Flag_open = false;
+
+				t_close = t0+t_reclose;
+
+				if (t_return > t_close) {
+					t_return = t_close; //  will go to the time that recloser is planned to be re-closed
+				}
+
+				//Safety device enacted - now call fault_check function and let it remove all invalid objects
+				//Map the function
+				funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+				//Make sure it was found
+				if (funadd == NULL)
+				{
+					GL_THROW("Unable to update objects for reliability effects");
+					/*  TROUBLESHOOT
+					While attempting to update the powerflow to properly represent the new post-fault state, an error
+					occurred.  If the problem persists, please submit a bug report and your code to the trac website.
+					*/
+				}
+
+				//Update powerflow - removal mode
+				ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
+
+				//Make sure it worked
+				if (ext_result != 1)
+				{
+					GL_THROW("Unable to update objects for reliability effects");
+					//defined above
+				}
+
+			}
+			// If the current time comes to t_open, but the current seen by recloser is smaller than the trip current
+			else if (t0 == t_open && (If_in[0].Mag()<Itrip && If_in[1].Mag()<Itrip && If_in[2].Mag()<Itrip)) {
+
+				Flag_open = false; // will not open the recloser
+				t_fault = TS_NEVER; //set the time recloser sees fault as default value
+				count_fast = lockout_fast; // set the fast-curve count as default values
+				count_slow = lockout_slow; // set the slow-curve count as default values
+
+				if (t_return > TS_NEVER) {
+					t_return = TS_NEVER; // Since there is no fault seen, will go to the end of the simulation (if still no event occurs)
+				}
+			}
+
+		}
+
+	}
+	else
+	// if any of the switch phases is opened:
+	{
+		// After opening of the recloser, iteration of the same time step occurs, therefore need to tell again the expected return time
+		if (t0 < t_close && Flag_lock == false) {
+			t_return = t_close; //  will go to the time that recloser is planned to be re-closed
+		}
+
+		// Close the recloser when time comes
+		if (t0 == t_close && Flag_lock == false) {
+			enumeration phase_A_state_check1 = phase_A_state;
+			enumeration phase_B_state_check1 = phase_B_state;
+			enumeration phase_C_state_check1 = phase_C_state;
+
+			// Assume now recloser is always banked switch
+			set_switch(true);
+
+			// Make sure set_switch works
+			phase_A_state_check1 = phase_A_state;
+			phase_B_state_check1 = phase_B_state;
+			phase_C_state_check1 = phase_C_state;
+
+			NR_admit_change = true;
+
+			t_open = TS_NEVER; // reset the t_open time
+			t_close = 0; //reset the t_close time
+
+			Flag_open = false; // reset the flag-open to false so that current seen by recloser will be examined
+
+			t_return = t0; // will iterate again to check the current seen by the recloser
+
+			//Safety device enacted - now call fault_check function and let it remove all invalid objects
+			//Map the function
+			funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+			//Make sure it was found
+			if (funadd == NULL)
+			{
+				GL_THROW("Unable to update objects for reliability effects");
+				/*  TROUBLESHOOT
+				While attempting to update the powerflow to properly represent the new post-fault state, an error
+				occurred.  If the problem persists, please submit a bug report and your code to the trac website.
+				*/
+			}
+
+			//Update powerflow - removal mode
+			ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,true);
+
+			//Make sure it worked
+			if (ext_result != 1)
+			{
+				GL_THROW("Unable to update objects for reliability effects");
+				//defined above
+			}
+		}
+		// If recloser is locked, should wait until human intervention to reset the recloser
+		else if (Flag_lock == true) {
+			// Do nothing now
+
+		}
 	}
 
-	return switch_object::sync(t0);
+
+	if (t_return == TS_NEVER)
+	{
+		return t_return;
+	}
+	else
+	{
+		return -t_return;	//Implies smaller time, but not TS_NEVER
+	}
+
+}
+
+// Fmax function
+double recloser::fmax(double a, double b)
+{
+	if (a > b)
+		return a;
+	else
+		return b;
+}
+
+// Fmax function
+double recloser::fmax_3(double a, double b, double c)
+{
+	if (a > b)
+		return fmax(a, c);
+	else
+		return fmax(b, c);
+}
+
+//Calculate the fault current operation time based on given curve data
+double recloser::cal_t_operation(double_array* TCC, int numPts, double I_fault)
+{
+
+	double t_operation = -1;
+	int startingPt = 0; // Used to indicate which given TCC point to start with, in case some corner cases
+	double t_Itrip = -1; // The corresponding operation time to the Itrip current value on TCC - needed if Itrip < (given TCC smallest current)
+
+	// Corner case: what if Itrip is larger than given TCC smallest current value
+	if (Itrip > *(TCC->get_addr(0,0))) {
+		// If Itrip is larger than some given TCC points, the TCC curve should actually start with the Itrip point
+		for (; startingPt < numPts; startingPt++) {
+			if (Itrip < *(TCC->get_addr(0,startingPt))) {
+				break;
+			}
+		}
+	}
+
+	// Corner case: what if Itrip is smaller than given TCC smallest current value
+	// This case is needed only when I_fault is smaller than TCC smallest current value
+	if  (I_fault < *(TCC->get_addr(0,startingPt))) {
+		if (Itrip < *(TCC->get_addr(0,0))) {
+			// If Itrip is smaller than all given TCC current values, should add Itrip with the corresponding t to TCC curve
+			double *Curr_0 = TCC->get_addr(0,startingPt); // the first point current on TCC
+			double *t_0 =TCC->get_addr(1,startingPt);// the first point time on TCC
+			double *Curr_1 = TCC->get_addr(0,startingPt+1); // the second point current on TCC
+			double *t_1 =TCC->get_addr(1,startingPt+1); // the second point time on TCC
+			t_Itrip = exp(log(*t_0)-(log(*Curr_0)-log(Itrip))*(log(*t_1)-log(*t_0))/(log(*Curr_1)-log(*Curr_0)));
+			// Calculate operation time
+			t_operation = exp(log(t_Itrip)+(log(I_fault)-log(Itrip))*(log(*t_0)-log(t_Itrip))/(log(*Curr_0)-log(Itrip)));
+			return t_operation; // Return the opertaion time directly
+		}
+	}
+
+
+	// Loop through each given TCC points, and get the closest one to the right side
+	for (; startingPt < numPts; startingPt++) {
+
+		// Obatin the corresponding operation time of the retrived TCC point
+		double *Curr_left = TCC->get_addr(0,startingPt);
+		double *t_left =TCC->get_addr(1,startingPt);
+
+		// If the fault current is larger than the maximum given current on TCC
+		if (I_fault > *Curr_left && startingPt == numPts-1) {
+			t_operation = *(double *)TCC->get_addr(1,startingPt);// Operation time of the recloser is the smallest time from given TCC
+			return t_operation; // Since the opertaion time is found, break out of the serach for loop
+		}
+
+		// Obtain the operation time of the given TCC point to the right side of the retrieved point on TCC
+		double *Curr_right = TCC->get_addr(0,startingPt+1);
+		double *t_right = TCC->get_addr(1,startingPt+1);
+
+		// If the fault current value is exactly the same as the retrived current value
+		if (I_fault == *Curr_left) {
+			t_operation = *(double *)TCC->get_addr(1,startingPt);// Operation time of thre recloser directly obtained from given TCC point
+			return t_operation; // Since the opertaion time is found, break out of the serach for loop
+		}
+
+		// If the fault current value is larger the left one, but smaller than the right one
+		if (I_fault > *Curr_left && I_fault < *Curr_right)
+		{
+			t_operation = exp(log(*t_left)+(log(I_fault)-log(*Curr_left))*(log(*t_right)-log(*t_left))/(log(*Curr_right)-log(*Curr_left)));
+			return t_operation; // Since the opertaion time is found, break out of the serach for loop
+		}
+	}
+
+	return t_operation;
 }
 
 //////////////////////////////////////////////////////////////////////////
