@@ -1038,7 +1038,6 @@ void fault_check::support_search_links_mesh(void)
 		//Find out what phases we could support
 		avail_phases = ((NR_busdata[NR_branchdata[indexval].from].phases & NR_busdata[NR_branchdata[indexval].to].phases) & 0x07);
 		result_phases = (NR_branchdata[indexval].origphases & (0xF8 | avail_phases));
-//		result_phases = ((NR_branchdata[indexval].origphases & 0xF8) | avail_phases);
 		
 		//Make sure we're not switchable first
 		//Switch, fuse, recloser, or sectionalizer, basically
