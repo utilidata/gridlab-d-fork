@@ -9,7 +9,7 @@
 #include "object.h"
 
 typedef struct  {
-	int type;				///< bus type (0=PQ, 1=PV, 2=SWING)
+	int type;				///< bus type (0=PQ, 1=PV, 2=SWING, 3=SWING_PQ)
 	unsigned char phases;	///< Phases property - used for construction of matrices (skip bad entries) - [Split Phase | House present | To side of SPCT | Diff Phase Child | D | A | B | C]
 	unsigned char origphases;	///< Original phases property - follows same format - used to save what object's original capabilities
 	set *busflag;			///< Pointer to busflags property - mainly used for reliability checks
@@ -69,6 +69,7 @@ typedef struct {
 	complex *If_from;		///< 3 phase fault currents on the from side
 	complex *If_to;			///< 3 phase fault currents on the to side 
 	FUNCTIONADDR limit_check;	////< Link to overload checking function (calculate_overlimit_link) -- restoration related
+	FUNCTIONADDR current_calc;	////< Link to current calculation checking function (update_current_pwr_object) - mesh fault related
 	FUNCTIONADDR ExtraDeltaModeFunc;	///< Link to extra functions of deltamode -- notably, transformer saturation
 	int fault_inplace[3];	///< 3 phase fault tracking, numerically, to know when to remove it
 } BRANCHDATA;

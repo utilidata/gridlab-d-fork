@@ -568,7 +568,7 @@ int add_fault_to_linked_list(int branch_reference)
 
 //Delete the fault from the linked list
 // fault_num is the assigned fault number for the fault
-// Returns a -1 for a failure, a 1 for a success
+// Returns a -1 for a failure to find, 0 for an empty, a 1 for a success
 int del_fault_from_linked_list(int fault_num)
 {
 	FAULT_SOURCE *searching_source;
@@ -592,7 +592,7 @@ int del_fault_from_linked_list(int fault_num)
 		//Unlock the swing before we leave
 		UNLOCK_OBJECT(NR_swing_bus);
 
-		return -1;
+		return 0;
 	}
 
 	//Align the pointer
