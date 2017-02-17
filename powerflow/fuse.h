@@ -15,6 +15,7 @@ class fuse : public link_object
 public:
 	static CLASS *oclass;
 	static CLASS *pclass;
+	static fuse *defaults;
 
 public:
 	typedef enum {BLOWN=0, GOOD=1} FUSESTATE;
@@ -34,6 +35,10 @@ public:
 	//Legacy FBS code - will change when reliability makes its way in there
 	int fuse_state(OBJECT *parent);
 	
+	void fix_fuse_function(TIMESTAMP t0);
+	double cal_t_operation(double_array* TCC, int numPts, double I_fault);
+	double fmax(double a, double b);
+
 	void set_fuse_full(char desired_status_A, char desired_status_B, char desired_status_C);	//Used to set individual phases - 0 = blown, 1 = good, 2 = don't care (retain current)
 	void set_fuse_full_reliability(unsigned char desired_status);
 	void set_fuse_faulted_phases(unsigned char desired_status);
@@ -50,7 +55,28 @@ public:
 	enumeration phase_C_state;
 	double mean_replacement_time;
 	TIMESTAMP fix_time[3];
-	double current_current_values[3];
+	double current_current_values[3];	// current seen during no-fault
+	double current_fault_values[3]; // fault current value seens
+
+	// Implement new parameters for protection coordination study
+	// Fuse paramters
+	double Irated; // Continuous current rating
+	double Itrip; // Minimum current rating that causing fuse to melt
+	GL_STRUCT(double_array,meltTCC); // Melting curve: double array storing current and operation time
+	GL_STRUCT(double_array,clearTCC); // Clearing curve: double array storing current and operation time
+	bool energyBased;	// Boolean value indicating whether the fuse operation is based on TCC only, or energy accumulated
+
+
+	// Recloser operation variables
+	bool Flag_open; //Flag indicating opening the fuse
+	TIMESTAMP t_open; //Time to open the fuse
+	TIMESTAMP t_fault; //Time at which fuse sees over-current event
+	double Iseen[3]; //Current seen by fuse
+	unsigned char fault_phases; // used to record the faulted phases
+	bool fuse_fixed; // Flag indicating fuse is fixed or not
+	TIMESTAMP replacement_time; // Time at which fuse is fixed
+	unsigned char fix_phases; // used to record the faulted phases
+
 
 	double fuse_resistance;
 private:

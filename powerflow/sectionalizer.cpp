@@ -33,6 +33,11 @@ sectionalizer::sectionalizer(MODULE *mod) : switch_object(mod)
 		// publish the class properties
         if(gl_publish_variable(oclass,
 			PT_INHERIT, "switch",
+			PT_double, "nominal_current", PADDR(Irated), PT_DESCRIPTION, "Continuous current rating",
+			PT_double, "actuating_current", PADDR(Iactuating), PT_DESCRIPTION, "Actuating current rating",
+			PT_double, "lowerLimit_current", PADDR(Ilowerlimit), PT_DESCRIPTION, "Current value below which the count occurs",
+			PT_double, "reset_time", PADDR(t_reset), PT_DESCRIPTION, "Time for reset sectionalizer",
+			PT_int16, "count_max", PADDR(count_max), PT_DESCRIPTION, "Maximum count numbers allowed before opening of the sectionalizer",
 			NULL) < 1) GL_THROW("unable to publish properties in %s",__FILE__);
 
 		if (gl_publish_function(oclass,"change_sectionalizer_state",(FUNCTIONADDR)change_sectionalizer_state)==NULL)
@@ -70,14 +75,283 @@ int sectionalizer::create()
 	phase_B_state = CLOSED;
 	phase_C_state = CLOSED;
 
+	Irated = 0.0;
+	Iactuating = 0.0;
+	Ilowerlimit = 0.0;
+	t_start = -1.0;
+	t_reset = 0.0;
+	count = 0;
+	count_max = 0;
+	flag_interrupted = false; // Have not seen the interruption at the beginning
+	notChecked = true;
+
 	return result;
 }
 
 //Initialization routine
+// - since NR_branch_reference value is obtained in presync func in link object,
+//   parameters check would be conducted in syn func
 int sectionalizer::init(OBJECT *parent)
 {
-	//Nothing to see here, just init it
-	return switch_object::init(parent);
+
+	// Return what obtained from switch object init function
+	int result = switch_object::init(parent);
+
+	return result;
+}
+
+// sync function
+TIMESTAMP sectionalizer::sync(TIMESTAMP t0)
+{
+	TIMESTAMP t_return = TS_NEVER; // Time to return in presync, will be changed based on controlled device operation time
+
+	FINDLIST *reclosers;
+	recloser **upReclosers;
+
+	// Check parameter settings - do it once
+	if (notChecked) {
+
+		// Search for upstream backup protective devices (relay/recloser)
+
+		// Firstly search for all existing reclosers
+		reclosers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"recloser",FT_END);//Check if there are recloser objects existing
+		if(reclosers == NULL){
+			GL_THROW("There is no recloser object defined, while the sectionalizer exists in the feeder. Should have at least one backup relay/recloser in this feeder.");
+		}
+
+	//	// Define a upstream recloser array to store all recloser objects that are upstream of the sectionalizer
+	//	upReclosers = (recloser **)gl_malloc(reclosers->hit_count*sizeof(recloser*));
+	//	if(upReclosers == NULL){
+	//		GL_THROW("Failed to allocate recloser array.");
+	//	}
+
+		// Loops starting from the sectionalizer upstream to the swing bus, to find the closest backup device
+		OBJECT* foundUpRecloserObj = searchUpstream(NR_branch_reference, 6); // recloser is of link type 6
+		if (foundUpRecloserObj == NULL) {
+			GL_THROW("Failed to find recloser object upstream of the sectionalizer. Should have at least one backup relay/recloser in this feeder.");
+		}
+
+		recloser *foundUpRecloser = OBJECTDATA(foundUpRecloserObj,recloser);
+
+		// Then search for existing relays
+
+		// TODO: implememt relay object, and then search for relays also
+
+		// Check the parameter values
+		// If the rated current is not defined, it would be the same as the one of its upstream recloser
+		if (Irated == 0.0) {
+			Irated = foundUpRecloser->Irated;
+		}
+		// Check Iactuating value
+		if (Iactuating == 0.0 || (Iactuating > 0.8 * foundUpRecloser->Itrip)) {
+			// Iactuating should be less than 80% of Itrip of its upstream recloser
+			Iactuating = 0.8 * foundUpRecloser->Itrip;
+		}
+		// Check t_reset value
+		if (t_reset == 0.0 || (t_reset < foundUpRecloser->t_reset)) {
+			// t_reset should be greater than that of its upstream recloser
+			t_reset = foundUpRecloser->t_reset;
+		}
+		// Check count_max value
+		if (count_max == 0 || (count_max >= foundUpRecloser->lockout_fast + foundUpRecloser->lockout_slow)) {
+			// count_max should be less than (lockout_slow + lockout_fast – 1) of its upstream recloser
+			count_max = foundUpRecloser->lockout_fast + foundUpRecloser->lockout_slow - 1;
+		}
+
+	}
+
+	notChecked = false; // set it as false so that parameters will not be checked again
+
+	// Sectionnalizer operations
+	// If the switch phases are all closed:
+	if ((phase_A_state == 1 && phase_B_state == 1 && phase_C_state == 1))
+	{
+		// If current seen by the sectionalizer is larger than the Iactuating current record the time
+		if (t_start < 0 && (If_in[0].Mag()>Iactuating || If_in[1].Mag()>Iactuating || If_in[2].Mag()>Iactuating))
+		{
+			t_start = t0; //record the currennt time as the starting time for sectionalizer operations
+		}
+
+		// If the current time has passed the reset time, reset it
+		if (t_start > 0 && (t0 > t_start + t_reset)) {
+			t_start = -1;
+			count = 0;
+		}
+
+		// If the sectionalizer has seen a fault interruption by upstream devices, count it
+		if (flag_interrupted == false && (current_in[0].Mag()<= Ilowerlimit && current_in[1].Mag() <= Ilowerlimit && current_in[2].Mag() <= Ilowerlimit) && t_start > 0) {
+			flag_interrupted = true;
+			count++;
+		}
+
+		// If fault is seen again by the sectionalizer, reset the flag_interrupted
+		if (flag_interrupted == true && (current_in[0].Mag()>Ilowerlimit || current_in[1].Mag()>Ilowerlimit || current_in[2].Mag()>Ilowerlimit) && t_start > 0) {
+			flag_interrupted = false;
+		}
+
+		// If the fault is interrupted by upstream devices, and count has reached the max value, open the sectionalizer
+		if (count == count_max && (current_in[0].Mag() == 0 && current_in[1].Mag() == 0 && current_in[2].Mag() == 0) && (t0 < t_start + t_reset)) {
+
+			// Open the sectionalizer
+			switch_object::sync(t0);
+			openSectionalizer();
+
+			// Set parameter values
+			flag_interrupted = true;
+			count = 0;
+			t_start = -1.0;
+		}
+
+	}
+	else {
+		// If the sectionalizer is opened, do nothing now
+		// Should wait until human intervention to closer the sectionalizer
+	}
+
+	return t_return;
+}
+
+
+OBJECT* sectionalizer::searchUpstream(int sectionalizer_number, int linkType)
+{
+
+	double result_val;
+	unsigned int index;
+	int foundUpstreamPro = 0; // numbers of the upstream protective devices found
+	int branch_val, node_val;
+	bool loop_complete, proper_exit;
+	OBJECT *tmp_obj;
+
+	//Pull base branch
+	node_val = NR_branchdata[sectionalizer_number].from;
+
+	//Set flag
+	loop_complete = false;
+
+	//Big loop
+	while (loop_complete == false)
+	{
+		//set tracking flag
+		proper_exit = false;
+
+		//Progress upstream until a recloser, or the SWING is encountered
+		for (index=0; index<NR_busdata[node_val].Link_Table_Size; index++)	//parse through our connected link
+		{
+			//Pull the branch information
+			branch_val = NR_busdata[node_val].Link_Table[index];
+
+			//See if this node is a to - if so, proceed up.  If not, next search
+			if (NR_branchdata[branch_val].to == node_val)
+			{
+				//It is! - see if it is a recloser
+				if (NR_branchdata[branch_val].lnk_type == 6)
+				{
+					//Map the object
+					tmp_obj = gl_get_object(NR_branchdata[branch_val].name);
+
+					//Make sure it worked
+					if (tmp_obj == NULL)
+					{
+						GL_THROW("Failure to map recloser object %s during sectionalizer handling",NR_branchdata[branch_val].name);
+						/*  TROUBLESHOOT
+						While mapping a recloser as part of a sectionalizer's reliability function, said recloser failed to be
+						mapped correctly.  Please try again.  If the error persists, please submit your code and a bug report
+						via the trac website.
+						*/
+					}
+
+					//Increment the numbers found
+					foundUpstreamPro++;
+
+					//Flag a proper exit
+					proper_exit = true;
+
+					//Loop is complete - only need to find one backup device for now
+					loop_complete = true;
+
+				}//Branch is a recloser
+				else	//Not a recloser - onwards and upwards
+				{
+					//Map our from node for the next search
+					node_val = NR_branchdata[branch_val].from;
+
+					//Make sure the from node isn't a SWING - if it is, we're done
+					if ((NR_busdata[node_val].type == 2) || ((NR_busdata[node_val].type == 3) && (NR_busdata[node_val].swing_functions_enabled == true)))
+					{
+						result_val = -1.0;		//Flag that a swing was found - failure :(
+						proper_exit = true;		//Flag so don't get stuck
+						break;					//Out of the FOR we go
+					}
+					else	//Normal node
+					{
+						proper_exit = true;		//Flag proper exiting (not loop limit) so next can proceed
+						break;					//Pop out of this FOR loop and start the next
+					}
+				}//Branch isn't a recloser
+			}
+			else	//Not, so onward and upward!
+			{
+				continue;
+			}
+		}//end for loop
+
+		//Generic check at end of FOR
+		if ((index >= NR_busdata[node_val].Link_Table_Size) && (proper_exit==false))	//Full traversion - then failure
+		{
+			result_val = 0.0;		//Encode as a failure
+			loop_complete = true;	//Flag loop as over
+		}
+	}//End while
+
+	return tmp_obj;
+}
+
+int sectionalizer::openSectionalizer()
+{
+	FUNCTIONADDR funadd = NULL;
+	int ext_result;
+
+	// Open the sectionalizer
+	enumeration phase_A_state_check1 = phase_A_state;
+	enumeration phase_B_state_check1 = phase_B_state;
+	enumeration phase_C_state_check1 = phase_C_state;
+
+	// Assume now sectionalizer is always banked switch
+	set_switch(false);
+
+	// Make sure set_switch works
+	phase_A_state_check1 = phase_A_state;
+	phase_B_state_check1 = phase_B_state;
+	phase_C_state_check1 = phase_C_state;
+
+	NR_admit_change = true;
+
+	//Safety device enacted - now call fault_check function and let it remove all invalid objects
+	//Map the function
+	funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+	//Make sure it was found
+	if (funadd == NULL)
+	{
+		GL_THROW("Unable to update objects for reliability effects");
+		/*  TROUBLESHOOT
+		While attempting to update the powerflow to properly represent the new post-fault state, an error
+		occurred.  If the problem persists, please submit a bug report and your code to the trac website.
+		*/
+	}
+
+	//Update powerflow - removal mode
+	ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
+
+	//Make sure it worked
+	if (ext_result != 1)
+	{
+		GL_THROW("Unable to update objects for reliability effects");
+		//defined above
+	}
+
+	return ext_result;
+
 }
 
 //////////////////////////////////////////////////////////////////////////

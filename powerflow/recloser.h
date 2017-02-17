@@ -54,7 +54,7 @@ public:
 	int count_fast; //Count of fast curve operations
 	int count_slow; //Count of slow curve operations
 	TIMESTAMP t_open; //Time to open the recloser
-	TIMESTAMP t_close; //Time to open the recloser
+	TIMESTAMP t_close; //Time to close the recloser
 	TIMESTAMP t_fault; //Time at which recloser sees over-current event
 	double Iseen[3]; //Current seen by recloser
 

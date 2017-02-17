@@ -138,14 +138,14 @@ int recloser::init(OBJECT *parent)
 	t_close = 0;
 	Iseen[0] = Iseen[1] = Iseen[2] = 0;
 
-	// Try double_array working or not
-	unsigned int rowNum = fastTCC.get_rows();
-	unsigned int colNum = fastTCC.get_cols();
-	double *test = fastTCC.get_addr(0,0);
-
-	double_array* try_double_array = new double_array (2, 3);
-	try_double_array->set_at(0, 0, 3.0);
-	try_double_array->set_at(0, 1, 5.0);
+//	// Try double_array working or not
+//	unsigned int rowNum = fastTCC.get_rows();
+//	unsigned int colNum = fastTCC.get_cols();
+//	double *test = fastTCC.get_addr(0,0);
+//
+//	double_array* try_double_array = new double_array (2, 3);
+//	try_double_array->set_at(0, 0, 3.0);
+//	try_double_array->set_at(0, 1, 5.0);
 
 
 	return result;
@@ -308,8 +308,8 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 
 				Flag_open = false; // will not open the recloser
 				t_fault = TS_NEVER; //set the time recloser sees fault as default value
-				count_fast = lockout_fast; // set the fast-curve count as default values
-				count_slow = lockout_slow; // set the slow-curve count as default values
+				count_fast = lockout_fast; // reset the fast-curve count as default values
+				count_slow = lockout_slow; // reset the slow-curve count as default values
 
 				if (t_return > TS_NEVER) {
 					t_return = TS_NEVER; // Since there is no fault seen, will go to the end of the simulation (if still no event occurs)

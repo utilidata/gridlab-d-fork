@@ -6,8 +6,8 @@
 //values are correct is to check whether the calculated bidding
 //prices are correct (this calculation uses these values)
 
-#set tmp=../test_markets_controller_cooling_deadband_matching_period
-#setenv GRIDLABD=../../../core
+//#set tmp=../test_markets_controller_cooling_deadband_matching_period
+//#setenv GRIDLABD=../../../core
 
 #define stylesheet=http://gridlab-d.svn.sourceforge.net/viewvc/gridlab-d/trunk/core/gridlabd-2_0
 
@@ -64,7 +64,7 @@ schedule cooling_setpoints {
 
 object climate {
 	name "Yakima WA";
-	tmyfile "../WA-Yakima.tmy2";
+	tmyfile "WA-Yakima.tmy2";
 }
 
 class auction {
@@ -124,20 +124,12 @@ object triplex_meter {
 		cooling_setpoint 70;
 		heating_setpoint 65;
 		air_temperature 72;
-		// object multi_recorder {
-			// property outdoor_temperature;
-			// file "weather_data.csv";
-			// interval 2 h;
-			// limit 4380;
-		// };
 		object controller {
 			name hvac_control;
 			market Market_1;
 			bid_mode ON;
 			control_mode DOUBLE_RAMP;
 			resolve_mode DEADBAND;
-			// slider_setting_heat 1;
-			// slider_setting_cool 1;
 			heating_base_setpoint 65;
 			cooling_base_setpoint 70;
 			period 900;
@@ -161,18 +153,11 @@ object triplex_meter {
 			cooling_ramp_low 3;
 			
 			object multi_recorder {
-				 property heating_base_setpoint,cooling_base_setpoint,simple_mode,period,setpoint,target,base_setpoint,control_mode,resolve_mode,demand,load,total,range_low,range_high,ramp_low,ramp_high,bid_mode,bid_price,bid_quantity,set_temp,house1:power_state,house1:cooling_demand,house1:cooling_setpoint,house1:air_temperature,house1:system_mode,average_target,standard_deviation_target,house1:hvac_load,house1:outdoor_temperature,house1:thermostat_deadband;
-				 // property heating_base_setpoint,cooling_base_setpoint,house1:heating_setpoint,house1:cooling_setpoint,heating_ramp_low,heating_ramp_high,heating_range_low,heating_range_high,cooling_ramp_low,cooling_ramp_high,cooling_range_low,cooling_range_high;
-				 file "check_defaults_output3.csv";
-				 interval 900;
-				 limit 4320;
-			};
-			object multi_recorder {
-				 // property heating_base_setpoint,cooling_base_setpoint,simple_mode,period,setpoint,target,base_setpoint,control_mode,resolve_mode,demand,load,total,range_low,range_high,ramp_low,ramp_high,bid_mode,bid_price,bid_quantity,set_temp,house1:power_state,house1:cooling_demand,house1:cooling_setpoint,house1:air_temperature,house1:system_mode,average_target,standard_deviation_target,house1:hvac_load,house1:outdoor_temperature,house1:thermostat_deadband;
-				 property heating_base_setpoint,cooling_base_setpoint,house1:heating_setpoint,house1:cooling_setpoint,heating_ramp_low,heating_ramp_high,heating_range_low,heating_range_high,cooling_ramp_low,cooling_ramp_high,cooling_range_low,cooling_range_high;
-				 file "check_defaults_output4.csv";
-				 interval 900;
-				 limit 4320;
+				//property heating_base_setpoint,cooling_base_setpoint,simple_mode,period,setpoint,target,base_setpoint,control_mode,resolve_mode,demand,load,total,range_low,range_high,ramp_low,ramp_high,bid_mode,bid_price,bid_quantity,set_temp,house1:power_state,house1:cooling_demand,house1:cooling_setpoint,house1:air_temperature,house1:system_mode,average_target,standard_deviation_target,house1:hvac_load,house1:outdoor_temperature,house1:thermostat_deadband;
+				property heating_base_setpoint,cooling_base_setpoint,house1:heating_setpoint,house1:cooling_setpoint,heating_ramp_low,heating_ramp_high,heating_range_low,heating_range_high,cooling_ramp_low,cooling_ramp_high,cooling_range_low,cooling_range_high;
+				file "check_defaults_output3.csv";
+				interval 900;
+				limit 4320;
 			};
 			object double_assert {
 				value controller_bids*1;

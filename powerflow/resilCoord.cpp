@@ -49,7 +49,6 @@ int resilCoord::init(OBJECT *parent)
 }
 TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 {
-	FINDLIST *capacitors, *fuses, *reclosers, *regulators, *sectionalizers;
 	FUNCTIONADDR funadd = NULL;
 	int ext_result;
 
@@ -70,163 +69,93 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 			*/
 		}
 
-		// Spare space for the controller:
-		numCtrl = fuses->hit_count + reclosers->hit_count + sectionalizers->hit_count + capacitors->hit_count + regulators->hit_count;
-		ctrlDev = (CTRLDEV*)gl_malloc(numCtrl*sizeof(CTRLDEV)); //Assign space for the array of CTRLDEV
-
-		// Loop through each type of the object, store the object name and parameters into the controller
-		int ctrlInd = 0;
+		// Local control of the recloser objects
 		int index = 0;
 		OBJECT *obj = NULL;
 
-		// Fuses:
-		if (fuses->hit_count != 0) {
-			fuse *pfuses;
-			while(obj = gl_find_next(fuses,obj)){
-				if(index >= fuses->hit_count){
-					break;
-				}
-				strcpy(ctrlDev[ctrlInd].className, obj->oclass->name);
-				ctrlDev[ctrlInd].target_dev = obj->name;
-				ctrlDev[ctrlInd].target_obj = obj;
-				pfuses = OBJECTDATA(obj,fuse);
-				if(pfuses == NULL){
-					GL_THROW("Unable to map object as fuse object.");
-					return TS_INVALID;
-				}
-				ctrlDev[ctrlInd].Flag_open = false;
-				ctrlDev[ctrlInd].t_fault = TS_NEVER;
-				ctrlDev[ctrlInd].t_open = TS_NEVER;
-				ctrlDev[ctrlInd].Iseen[0] = pfuses->current_in[0].Mag();
-				ctrlDev[ctrlInd].Iseen[1] = pfuses->current_in[1].Mag();
-				ctrlDev[ctrlInd].Iseen[2] = pfuses->current_in[2].Mag();
 
-				ctrlInd++;
-				index++;
+		//write reclosers
+		if(reclosers != NULL){
+			pRecloser = (recloser **)gl_malloc(reclosers->hit_count*sizeof(recloser*));
+			if(pRecloser == NULL){
+				gl_error("Failed to allocate fuse array.");
+				return TS_NEVER;
 			}
-		}
-
-		// reclosers:
-		index = 0;
-		obj = NULL;
-
-		if (reclosers->hit_count != 0) {
-			recloser *preclosers;
 			while(obj = gl_find_next(reclosers,obj)){
 				if(index >= reclosers->hit_count){
 					break;
 				}
-				strcpy(ctrlDev[ctrlInd].className, obj->oclass->name);
-				ctrlDev[ctrlInd].target_dev = obj->name;
-				ctrlDev[ctrlInd].target_obj = obj;
-				preclosers = OBJECTDATA(obj,recloser);
-				if(preclosers == NULL){
-					GL_THROW("Unable to map object as recloser object.");
-					return TS_INVALID;
+				pRecloser[index] = OBJECTDATA(obj,recloser);
+				if(pRecloser[index] == NULL){
+					gl_error("Unable to map object as a recloser object.");
+					return 0;
 				}
-				ctrlDev[ctrlInd].Flag_open = false;
-				ctrlDev[ctrlInd].Flag_lock = false;
-				ctrlDev[ctrlInd].count_fast = preclosers->lockout_fast;
-				ctrlDev[ctrlInd].count_slow = preclosers->lockout_slow;
-				ctrlDev[ctrlInd].t_fault = TS_NEVER;
-				ctrlDev[ctrlInd].t_open = TS_NEVER;
-				ctrlDev[ctrlInd].Iseen[0] = preclosers->current_in[0].Mag();
-				ctrlDev[ctrlInd].Iseen[1] = preclosers->current_in[1].Mag();
-				ctrlDev[ctrlInd].Iseen[2] = preclosers->current_in[2].Mag();
-
-				ctrlInd++;
-				index++;
+				++index;
 			}
 		}
 
-		// sectionalizers:
-		index = 0;
-		obj = NULL;
-
-		if (sectionalizers->hit_count != 0) {
-			sectionalizer *psectionalizers;
-			while(obj = gl_find_next(sectionalizers,obj)){
-				if(index >= sectionalizers->hit_count){
-					break;
-				}
-				strcpy(ctrlDev[ctrlInd].className, obj->oclass->name);
-				ctrlDev[ctrlInd].target_dev = obj->name;
-				ctrlDev[ctrlInd].target_obj = obj;
-				psectionalizers = OBJECTDATA(obj,sectionalizer);
-				if(psectionalizers == NULL){
-					GL_THROW("Unable to map object as sectionalizer object.");
-					return TS_INVALID;
-				}
-				ctrlDev[ctrlInd].Flag_open = false;
-				ctrlDev[ctrlInd].Flag_lock = false;
-				ctrlDev[ctrlInd].t_fault = TS_NEVER;
-				ctrlDev[ctrlInd].t_open = TS_NEVER;
-				ctrlDev[ctrlInd].Iseen[0] = psectionalizers->current_in[0].Mag();
-				ctrlDev[ctrlInd].Iseen[1] = psectionalizers->current_in[1].Mag();
-				ctrlDev[ctrlInd].Iseen[2] = psectionalizers->current_in[2].Mag();
-
-				ctrlInd++;
-				index++;
-			}
-		}
-
-		// capacitors:
-		index = 0;
-		obj = NULL;
-
-		if (capacitors->hit_count != 0) {
-			capacitor *pcapacitors;
-			while(obj = gl_find_next(capacitors,obj)){
-				if(index >= capacitors->hit_count){
-					break;
-				}
-				strcpy(ctrlDev[ctrlInd].className, obj->oclass->name);
-				ctrlDev[ctrlInd].target_dev = obj->name;
-				ctrlDev[ctrlInd].target_obj = obj;
-				pcapacitors = OBJECTDATA(obj,capacitor);
-				if(pcapacitors == NULL){
-					GL_THROW("Unable to map object as capacitor object.");
-					return TS_INVALID;
-				}
-
-				ctrlInd++;
-				index++;
-			}
-		}
-
-		// regulators:
-		index = 0;
-		obj = NULL;
-
-		if (regulators->hit_count != 0) {
-			regulator *pregulators;
-			while(obj = gl_find_next(regulators,obj)){
-				if(index >= regulators->hit_count){
-					break;
-				}
-				strcpy(ctrlDev[ctrlInd].className, obj->oclass->name);
-				ctrlDev[ctrlInd].target_dev = obj->name;
-				ctrlDev[ctrlInd].target_obj = obj;
-				pregulators = OBJECTDATA(obj,regulator);
-				if(pregulators == NULL){
-					GL_THROW("Unable to map object as regulator object.");
-					return TS_INVALID;
-				}
-
-				ctrlInd++;
-				index++;
-			}
-		}
 	}
 
 	TIMESTAMP t_return = TS_NEVER; // Time to return in presync, will be changed based on controlled device operation time
 
-	//Control each type of the device seperately
-	for (int ctrlInd = 0; ctrlInd < numCtrl; ctrlInd++) {
+	//Control the operation of the reclosers
+	if(reclosers != NULL){
+		for (int i = 0; i < reclosers->hit_count; i++) {
+			// Loop through the recloser to find the recloser to be opened under the fault
+			if (pRecloser[i]->Flag_open == true) {
 
-		//// Future implementation for controlling multiple devices based on communication
+				int phaseNum =  0;
 
-	} // End of the control for all devices
+				// Find the properties of the recloser from node
+				OBJECT *recFromNdObj = gl_get_object(pRecloser[i]->from->name);
+				if (recFromNdObj==NULL) {
+					throw "Recloser from node is not specified";
+					/*  TROUBLESHOOT
+					The from node for a line or link is not connected to anything.
+					*/
+				}
+
+				// Get the recloser from node phase numbers
+				node *recFromNd = OBJECTDATA(recFromNdObj,node);
+				if(recFromNd->has_phase(PHASE_A)){
+					phaseNum++;
+				}
+				if(recFromNd->has_phase(PHASE_B)){
+					phaseNum++;
+				}
+				if(recFromNd->has_phase(PHASE_C)){
+					phaseNum++;
+				}
+
+				// Search for parallelled reclosers if the recloser is connected to three-phase or two-hase nodes
+				if (phaseNum > 1) {
+					int recFound = 0;
+					for (int j = 0; j < reclosers->hit_count; j++) {
+						if (j == i) continue;
+
+						// Find the paralleled reclosers
+						if (((pRecloser[i]->from->name == pRecloser[j]->from->name) && (pRecloser[i]->to->name == pRecloser[j]->to->name)) ||
+								((pRecloser[i]->to->name == pRecloser[j]->from->name) && (pRecloser[i]->from->name == pRecloser[j]->to->name))) {
+
+							recFound++; // Find one parallelled
+
+							if (pRecloser[j]->If_in[0].Mag()>pRecloser[j]->Itrip || pRecloser[j]->If_in[1].Mag()>pRecloser[j]->Itrip || pRecloser[j]->If_in[2].Mag()>pRecloser[j]->Itrip) {
+								pRecloser[j]->Flag_open = true;
+								pRecloser[j]->t_open = pRecloser[i]->t_open; // Set the opening time the same if both see the fault
+							}
+						}
+
+						if (recFound == phaseNum - 1) {
+							break;
+						}
+
+					}
+				} // End if parallelled reclosers exist
+
+			} // End if the recloser is to be opened under the fault
+
+		} // End looping through the recloser
+	}
 
 	if (t_return == TS_NEVER)
 	{
