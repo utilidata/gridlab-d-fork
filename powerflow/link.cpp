@@ -173,6 +173,8 @@ link_object::link_object(MODULE *mod) : powerflow_object(mod)
 			//Publish restoration-related function (current update)
 			if (gl_publish_function(oclass,	"update_power_pwr_object", (FUNCTIONADDR)updatepowercalc_link)==NULL)
 				GL_THROW("Unable to publish link external power calculation function");
+			if (gl_publish_function(oclass,	"update_current_pwr_object", (FUNCTIONADDR)updatecurrentcalc_link)==NULL)
+				GL_THROW("Unable to publish link external current calculation function");
 			if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 				GL_THROW("Unable to publish link external power limit calculation function");
 	}
@@ -2237,6 +2239,20 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 					*/
 				}
 
+				//Map the current calculation function
+				NR_branchdata[NR_branch_reference].current_calc = (FUNCTIONADDR)(gl_get_function(obj,"update_current_pwr_object"));
+
+				//Make sure it worked
+				if (NR_branchdata[NR_branch_reference].current_calc == NULL)
+				{
+					GL_THROW("link_object: unable to map current calculating function for link:%s",obj->name ? obj->name : "Unnamed");
+					/*  TROUBLESHOOT
+					While attempting to map the current calculation function for a link object, the mapping failed.
+					Please try again.  If the error persists, please submit your code and a bug report via the ticketing
+					system.
+					*/
+				}
+
 				//Populate phases property
 				NR_branchdata[NR_branch_reference].phases = 128*has_phase(PHASE_S) + 4*has_phase(PHASE_A) + 2*has_phase(PHASE_B) + has_phase(PHASE_C);
 				
@@ -3390,13 +3406,26 @@ EXPORT SIMULATIONMODE interupdate_link(OBJECT *obj, unsigned int64 delta_time, u
 	}
 }
 
+//Externally callable current update -- mostly for mesh fault current
+//Probably doesn't need to be "external", but "safer" this way
+EXPORT int updatecurrentcalc_link(OBJECT *obj, bool calc_mode)
+{
+	link_object *my = OBJECTDATA(obj,link_object);
+
+	//Call the current update -- do it as a "self call"
+	my->CurrentCalculation(-1,calc_mode);
+
+	//We always succeed, because we're just that good.
+	return 1;
+}
+
 //Externally callable power update -- for restoration code, primarily
 EXPORT int updatepowercalc_link(OBJECT *obj)
 {
 	link_object *my = OBJECTDATA(obj,link_object);
 
 	//Call the current update -- do it as a "self call"
-	my->CurrentCalculation(-1);
+	my->CurrentCalculation(-1,false);
 
 	//Now update the power value
 	my->calculate_power();
@@ -3419,7 +3448,7 @@ EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *o
 	if (use_link_limits == true)
 	{
 		//Call the current update -- do it as a "self call"
-		my->CurrentCalculation(-1);
+		my->CurrentCalculation(-1,false);
 
 		//Now update the power value
 		my->calculate_power();
@@ -3436,19 +3465,31 @@ EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *o
 * CurrentCalculation will perform the Newton-Raphson accumulation of
 * current injections - functionalized for Master/Slave use
 * nodecall is set by calling nodes - indicates the NR reference (for locking issues)
-*
-* This function may supercede "calc_currents" for the restoration module - quite honestly, I don't know if
-*      that function even calculates proper values anymore.
+* link_fault_mode is used by mesh fault current propagation -- use as "false" for normal operations
 *
 * Locking not needed on various fnode/tnode voltage reads - rank separation prevents contention
 *     For normal operation, only from nodes need locking - this is an assumption holdover from FBS days - it may need revisiting
 */
-int link_object::CurrentCalculation(int nodecall)
+int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 {
+	complex *current_pointer_in;
+	complex *current_pointer_out;
+
 	if (current_accumulated==false)	//Only update if we haven't done so yet
 	{
 		//Reset the deltamode-oriented flag, just because - will stay by exception
 		inrush_computations_needed = false;
+
+		if (link_fault_mode == true)
+		{
+			current_pointer_in = &If_in[0];
+			current_pointer_out = &If_out[0];
+		}
+		else
+		{
+			current_pointer_in = &current_in[0];
+			current_pointer_out = &current_out[0];
+		}
 
 		if (is_closed())	//Only compute this if the overall link is "in service"
 		{
@@ -3580,14 +3621,14 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Apply adjustments
-					current_in[0] = current_temp[0] + shunt_current_val[0];
-					current_in[1] = current_temp[1] + shunt_current_val[1];
-					current_in[2] = current_temp[2] + shunt_current_val[2];
+					current_pointer_in[0] = current_temp[0] + shunt_current_val[0];
+					current_pointer_in[1] = current_temp[1] + shunt_current_val[1];
+					current_pointer_in[2] = current_temp[2] + shunt_current_val[2];
 
 					//Output is backwards, plus needs other components negated (full backwards - injection into to node, so KCL)
-					current_out[0] = -current_temp[3] - shunt_current_val[3];
-					current_out[1] = -current_temp[4] - shunt_current_val[4];
-					current_out[2] = -current_temp[5] - shunt_current_val[5];
+					current_pointer_out[0] = -current_temp[3] - shunt_current_val[3];
+					current_pointer_out[1] = -current_temp[4] - shunt_current_val[4];
+					current_pointer_out[2] = -current_temp[5] - shunt_current_val[5];
 
 					//Compute the difference, for convergence checks (semi-silly, but should still work)
 					//Just prim - secondary of each phase, but if the difference doesn't move, should be solved (right?)
@@ -3653,65 +3694,65 @@ int link_object::CurrentCalculation(int nodecall)
 					//Scale the "b_mat" value by the inverse (make it high-side impedance)
 					//Post values based on phases (reliability related)
 					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
-						current_in[0] = itemp[0]*invsquared;
+						current_pointer_in[0] = itemp[0]*invsquared;
 					else
-						current_in[0] = 0.0;
+						current_pointer_in[0] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
-						current_in[1] = itemp[1]*invsquared;
+						current_pointer_in[1] = itemp[1]*invsquared;
 					else
-						current_in[1] = 0.0;
+						current_pointer_in[1] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
-						current_in[2] = itemp[2]*invsquared;
+						current_pointer_in[2] = itemp[2]*invsquared;
 					else
-						current_in[2] = 0.0;
+						current_pointer_in[2] = 0.0;
 
 					//Calculate current out
 					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 					{
-						current_out[0] = A_mat[0][0]*current_in[0]+
-										 A_mat[0][1]*current_in[1]+
-										 A_mat[0][2]*current_in[2];
+						current_pointer_out[0] = A_mat[0][0]*current_pointer_in[0]+
+										 	 	 A_mat[0][1]*current_pointer_in[1]+
+												 A_mat[0][2]*current_pointer_in[2];
 
 						//Apply additional change
 						if (a_mat[0][0] != 0)
 						{
-							current_out[0] -= tnode->voltage[0]/a_mat[0][0]*voltage_ratio;
+							current_pointer_out[0] -= tnode->voltage[0]/a_mat[0][0]*voltage_ratio;
 						}
 					}
 					else
-						current_out[0] = 0.0;
+						current_pointer_out[0] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 					{
-						current_out[1] = A_mat[1][0]*current_in[0]+
-										 A_mat[1][1]*current_in[1]+
-										 A_mat[1][2]*current_in[2];
+						current_pointer_out[1] = A_mat[1][0]*current_pointer_in[0]+
+										 	 	 A_mat[1][1]*current_pointer_in[1]+
+												 A_mat[1][2]*current_pointer_in[2];
 
 						//Apply additional update
 						if (a_mat[1][1] != 0)
 						{
-							current_out[1] -= tnode->voltage[1]/a_mat[1][1]*voltage_ratio;
+							current_pointer_out[1] -= tnode->voltage[1]/a_mat[1][1]*voltage_ratio;
 						}
 					}
 					else
-						current_out[1] = 0.0;
+						current_pointer_out[1] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 					{
-						current_out[2] = A_mat[2][0]*current_in[0]+
-										 A_mat[2][1]*current_in[1]+
-										 A_mat[2][2]*current_in[2];
+						current_pointer_out[2] = A_mat[2][0]*current_pointer_in[0]+
+										 	 	 A_mat[2][1]*current_pointer_in[1]+
+												 A_mat[2][2]*current_pointer_in[2];
 
 						//Apply additional update
 						if (a_mat[2][2] != 0)
 						{
-							current_out[2] -= tnode->voltage[2]/a_mat[2][2]*voltage_ratio;
+							current_pointer_out[2] -= tnode->voltage[2]/a_mat[2][2]*voltage_ratio;
 						}
 					}
 					else
-						current_out[2] = 0.0;
+						current_pointer_out[2] = 0.0;
 
 					//See if our nature requires a lock
 					if (flock)
@@ -3720,10 +3761,14 @@ int link_object::CurrentCalculation(int nodecall)
 						WRITELOCK_OBJECT(fobjval);
 					}
 
-					//Current in is just the same
-					fnode->current_inj[0] += current_in[0];
-					fnode->current_inj[1] += current_in[1];
-					fnode->current_inj[2] += current_in[2];
+					//Check to see which mode we're in
+					if (link_fault_mode == false)
+					{
+						//Current in is just the same
+						fnode->current_inj[0] += current_pointer_in[0];
+						fnode->current_inj[1] += current_pointer_in[1];
+						fnode->current_inj[2] += current_pointer_in[2];
+					}
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -3733,7 +3778,7 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Replicate to the "original parent" if needed
-					if (ofnode != NULL)
+					if ((ofnode != NULL) && (link_fault_mode == false))
 					{
 						//See if our nature requires a lock
 						if (flock)
@@ -3743,9 +3788,9 @@ int link_object::CurrentCalculation(int nodecall)
 						}
 
 						//Apply current injection updates to child as well
-						ofnode->current_inj[0] += current_in[0];
-						ofnode->current_inj[1] += current_in[1];
-						ofnode->current_inj[2] += current_in[2];
+						ofnode->current_inj[0] += current_pointer_in[0];
+						ofnode->current_inj[1] += current_pointer_in[1];
+						ofnode->current_inj[2] += current_pointer_in[2];
 
 						//If we locked our from node, be sure to let it go
 						if (flock)
@@ -3776,58 +3821,58 @@ int link_object::CurrentCalculation(int nodecall)
 
 				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 				{
-					current_out[0] = From_Y[0][0]*vtemp[0]+
+					current_pointer_out[0] = From_Y[0][0]*vtemp[0]+
 									 From_Y[0][1]*vtemp[1]+
 									 From_Y[0][2]*vtemp[2];
 				}
 				else
-					current_out[0] = 0.0;
+					current_pointer_out[0] = 0.0;
 
 				if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 				{
-					current_out[1] = From_Y[1][0]*vtemp[0]+
-									 From_Y[1][1]*vtemp[1]+
-									 From_Y[1][2]*vtemp[2];
+					current_pointer_out[1] = From_Y[1][0]*vtemp[0]+
+									 	 	 From_Y[1][1]*vtemp[1]+
+											 From_Y[1][2]*vtemp[2];
 				}
 				else
-					current_out[1] = 0.0;
+					current_pointer_out[1] = 0.0;
 
 				if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 				{
-					current_out[2] = From_Y[2][0]*vtemp[0]+
-									From_Y[2][1]*vtemp[1]+
-									From_Y[2][2]*vtemp[2];
+					current_pointer_out[2] = From_Y[2][0]*vtemp[0]+
+											 From_Y[2][1]*vtemp[1]+
+											 From_Y[2][2]*vtemp[2];
 				}
 				else
-					current_out[2] = 0.0;
+					current_pointer_out[2] = 0.0;
 
 				//Calculate current_in based on current_out (backwards, isn't it?)
 				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 				{
-					current_in[0] = d_mat[0][0]*current_out[0]+
-									d_mat[0][1]*current_out[1]+
-									d_mat[0][2]*current_out[2];
+					current_pointer_in[0] = d_mat[0][0]*current_pointer_out[0]+
+											d_mat[0][1]*current_pointer_out[1]+
+											d_mat[0][2]*current_pointer_out[2];
 				}
 				else
-					current_in[0] = 0.0;
+					current_pointer_in[0] = 0.0;
 
 				if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 				{
-					current_in[1] = d_mat[1][0]*current_out[0]+
-									d_mat[1][1]*current_out[1]+
-									d_mat[1][2]*current_out[2];
+					current_pointer_in[1] = d_mat[1][0]*current_pointer_out[0]+
+											d_mat[1][1]*current_pointer_out[1]+
+											d_mat[1][2]*current_pointer_out[2];
 				}
 				else
-					current_in[1] = 0.0;
+					current_pointer_in[1] = 0.0;
 
 				if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 				{
-					current_in[2] = d_mat[2][0]*current_out[0]+
-									d_mat[2][1]*current_out[1]+
-									d_mat[2][2]*current_out[2];
+					current_pointer_in[2] = d_mat[2][0]*current_pointer_out[0]+
+											d_mat[2][1]*current_pointer_out[1]+
+											d_mat[2][2]*current_pointer_out[2];
 				}
 				else
-					current_in[2] = 0.0;
+					current_pointer_in[2] = 0.0;
 
 				//See if our nature requires a lock
 				if (flock)
@@ -3836,10 +3881,14 @@ int link_object::CurrentCalculation(int nodecall)
 					WRITELOCK_OBJECT(fobjval);
 				}
 
-				//Current in is just the same
-				fnode->current_inj[0] += current_in[0];
-				fnode->current_inj[1] += current_in[1];
-				fnode->current_inj[2] += current_in[2];
+				//Check to see which mode we're in
+				if (link_fault_mode == false)
+				{
+					//Current in is just the same
+					fnode->current_inj[0] += current_pointer_in[0];
+					fnode->current_inj[1] += current_pointer_in[1];
+					fnode->current_inj[2] += current_pointer_in[2];
+				}
 
 				//If we locked our from node, be sure to let it go
 				if (flock)
@@ -3849,7 +3898,7 @@ int link_object::CurrentCalculation(int nodecall)
 				}
 
 				//Replicate to the "original parent" if needed
-				if (ofnode != NULL)
+				if ((ofnode != NULL) && (link_fault_mode == false))
 				{
 					//See if our nature requires a lock
 					if (flock)
@@ -3859,9 +3908,9 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Apply current injection updates to child
-					ofnode->current_inj[0] += current_in[0];
-					ofnode->current_inj[1] += current_in[1];
-					ofnode->current_inj[2] += current_in[2];
+					ofnode->current_inj[0] += current_pointer_in[0];
+					ofnode->current_inj[1] += current_pointer_in[1];
+					ofnode->current_inj[2] += current_pointer_in[2];
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -3892,32 +3941,32 @@ int link_object::CurrentCalculation(int nodecall)
 				//Get low side current (current out) - for now, oh grand creator (me) mandates D-GWye are three phase or nothing
 				if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07)	//ABC
 				{
-					current_out[0] = vtemp[0] * b_mat[0][0];
-					current_out[1] = vtemp[1] * b_mat[1][1];
-					current_out[2] = vtemp[2] * b_mat[2][2];
+					current_pointer_out[0] = vtemp[0] * b_mat[0][0];
+					current_pointer_out[1] = vtemp[1] * b_mat[1][1];
+					current_pointer_out[2] = vtemp[2] * b_mat[2][2];
 
 					//Translate back to high-side
-					current_in[0] = d_mat[0][0]*current_out[0]+
-									d_mat[0][1]*current_out[1]+
-									d_mat[0][2]*current_out[2];
+					current_pointer_in[0] = d_mat[0][0]*current_pointer_out[0]+
+											d_mat[0][1]*current_pointer_out[1]+
+											d_mat[0][2]*current_pointer_out[2];
 
-					current_in[1] = d_mat[1][0]*current_out[0]+
-									d_mat[1][1]*current_out[1]+
-									d_mat[1][2]*current_out[2];
+					current_pointer_in[1] = d_mat[1][0]*current_pointer_out[0]+
+											d_mat[1][1]*current_pointer_out[1]+
+											d_mat[1][2]*current_pointer_out[2];
 
-					current_in[2] = d_mat[2][0]*current_out[0]+
-									d_mat[2][1]*current_out[1]+
-									d_mat[2][2]*current_out[2];
+					current_pointer_in[2] = d_mat[2][0]*current_pointer_out[0]+
+											d_mat[2][1]*current_pointer_out[1]+
+											d_mat[2][2]*current_pointer_out[2];
 				}
 				else
 				{
-					current_out[0] = 0.0;
-					current_out[1] = 0.0;
-					current_out[2] = 0.0;
+					current_pointer_out[0] = 0.0;
+					current_pointer_out[1] = 0.0;
+					current_pointer_out[2] = 0.0;
 
-					current_in[0] = 0.0;
-					current_in[1] = 0.0;
-					current_in[2] = 0.0;
+					current_pointer_in[0] = 0.0;
+					current_pointer_in[1] = 0.0;
+					current_pointer_in[2] = 0.0;
 				}
 
 				//See if our nature requires a lock
@@ -3927,10 +3976,14 @@ int link_object::CurrentCalculation(int nodecall)
 					WRITELOCK_OBJECT(fobjval);
 				}
 
-				//Current in is just the same
-				fnode->current_inj[0] += current_in[0];
-				fnode->current_inj[1] += current_in[1];
-				fnode->current_inj[2] += current_in[2];
+				//Check to see which mode we're in
+				if (link_fault_mode == false)
+				{
+					//Current in is just the same
+					fnode->current_inj[0] += current_pointer_in[0];
+					fnode->current_inj[1] += current_pointer_in[1];
+					fnode->current_inj[2] += current_pointer_in[2];
+				}
 
 				//If we locked our from node, be sure to let it go
 				if (flock)
@@ -3940,7 +3993,7 @@ int link_object::CurrentCalculation(int nodecall)
 				}
 
 				//Replicate to the "original parent" if needed
-				if (ofnode != NULL)
+				if ((ofnode != NULL) && (link_fault_mode == false))
 				{
 					//See if our nature requires a lock
 					if (flock)
@@ -3950,9 +4003,9 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Apply updates to child object
-					ofnode->current_inj[0] += current_in[0];
-					ofnode->current_inj[1] += current_in[1];
-					ofnode->current_inj[2] += current_in[2];
+					ofnode->current_inj[0] += current_pointer_in[0];
+					ofnode->current_inj[1] += current_pointer_in[1];
+					ofnode->current_inj[2] += current_pointer_in[2];
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -3966,10 +4019,10 @@ int link_object::CurrentCalculation(int nodecall)
 			{
 				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 				{
-					current_in[0] = itemp[0] = 
-						fnode->voltage[0]*b_mat[2][2]+
-						tnode->voltage[0]*b_mat[2][0]+
-						tnode->voltage[1]*b_mat[2][1];
+					current_pointer_in[0] = itemp[0] =
+											fnode->voltage[0]*b_mat[2][2]+
+											tnode->voltage[0]*b_mat[2][0]+
+											tnode->voltage[1]*b_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -3978,8 +4031,12 @@ int link_object::CurrentCalculation(int nodecall)
 						WRITELOCK_OBJECT(fobjval);
 					}
 
-					//Accumulate injection
-					fnode->current_inj[0] += itemp[0];
+					//Check to see which mode we're in
+					if (link_fault_mode == false)
+					{
+						//Accumulate injection
+						fnode->current_inj[0] += itemp[0];
+					}
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -3989,7 +4046,7 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Replicate to the "original parent" if needed
-					if (ofnode != NULL)
+					if ((ofnode != NULL) && (link_fault_mode == false))
 					{
 						//See if our nature requires a lock
 						if (flock)
@@ -4010,20 +4067,20 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//calculate current out
-					current_out[0] = fnode->voltage[0]*b_mat[0][2]+
-									 tnode->voltage[0]*b_mat[0][0]+
-									 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[0]*b_mat[0][2]+
+											 tnode->voltage[0]*b_mat[0][0]+
+											 tnode->voltage[1]*b_mat[0][1];
 
-					current_out[1] = fnode->voltage[0]*b_mat[1][2]+
-									 tnode->voltage[0]*b_mat[1][0]+
-									 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[0]*b_mat[1][2]+
+											 tnode->voltage[0]*b_mat[1][0]+
+											 tnode->voltage[1]*b_mat[1][1];
 				}
 				else if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 				{
-					current_in[1] = itemp[0] = 
-						fnode->voltage[1]*b_mat[2][2] +
-						tnode->voltage[0]*b_mat[2][0] +
-						tnode->voltage[1]*b_mat[2][1];
+					current_pointer_in[1] = itemp[0] =
+											fnode->voltage[1]*b_mat[2][2] +
+											tnode->voltage[0]*b_mat[2][0] +
+											tnode->voltage[1]*b_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -4032,8 +4089,12 @@ int link_object::CurrentCalculation(int nodecall)
 						WRITELOCK_OBJECT(fobjval);
 					}
 
-					//Accumulate the injection
-					fnode->current_inj[1] += itemp[0];
+					//Check to see which mode we're in
+					if (link_fault_mode == false)
+					{
+						//Accumulate the injection
+						fnode->current_inj[1] += itemp[0];
+					}
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -4043,7 +4104,7 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Replicate to the "original parent" if needed
-					if (ofnode != NULL)
+					if ((ofnode != NULL) && (link_fault_mode == false))
 					{
 						//See if our nature requires a lock
 						if (flock)
@@ -4064,21 +4125,21 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//calculate current out
-					current_out[0] = fnode->voltage[1]*b_mat[0][2] +
-									 tnode->voltage[0]*b_mat[0][0] +
-									 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[1]*b_mat[0][2] +
+									 	 	 tnode->voltage[0]*b_mat[0][0] +
+											 tnode->voltage[1]*b_mat[0][1];
 
-					current_out[1] = fnode->voltage[1]*b_mat[1][2] +
-									 tnode->voltage[0]*b_mat[1][0] +
-									 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[1]*b_mat[1][2] +
+									 	 	 tnode->voltage[0]*b_mat[1][0] +
+											 tnode->voltage[1]*b_mat[1][1];
 
 				}
 				else if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 				{
-					current_in[2] = itemp[0] = 
-						fnode->voltage[2]*b_mat[2][2] +
-						tnode->voltage[0]*b_mat[2][0] +
-						tnode->voltage[1]*b_mat[2][1];
+					current_pointer_in[2] = itemp[0] =
+											fnode->voltage[2]*b_mat[2][2] +
+											tnode->voltage[0]*b_mat[2][0] +
+											tnode->voltage[1]*b_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -4087,8 +4148,12 @@ int link_object::CurrentCalculation(int nodecall)
 						WRITELOCK_OBJECT(fobjval);
 					}
 
-					//Accumulate the injection
-					fnode->current_inj[2] += itemp[0];
+					//Check to see which mode we're in
+					if (link_fault_mode == false)
+					{
+						//Accumulate the injection
+						fnode->current_inj[2] += itemp[0];
+					}
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -4098,7 +4163,7 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Replicate to the "original parent" if needed
-					if (ofnode != NULL)
+					if ((ofnode != NULL) && (link_fault_mode == false))
 					{
 						//See if our nature requires a lock
 						if (flock)
@@ -4119,26 +4184,26 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//calculate current out
-					current_out[0] = fnode->voltage[2]*b_mat[0][2]+
-									 tnode->voltage[0]*b_mat[0][0]+
-									 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[2]*b_mat[0][2]+
+									 	 	 tnode->voltage[0]*b_mat[0][0]+
+											 tnode->voltage[1]*b_mat[0][1];
 
-					current_out[1] = fnode->voltage[2]*b_mat[1][2]+
-									 tnode->voltage[0]*b_mat[1][0]+
-									 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[2]*b_mat[1][2]+
+									 	 	 tnode->voltage[0]*b_mat[1][0]+
+											 tnode->voltage[1]*b_mat[1][1];
 				}
 				else	//No phases valid
 				{
-					current_out[0] = 0.0;
-					current_out[1] = 0.0;
+					current_pointer_out[0] = 0.0;
+					current_pointer_out[1] = 0.0;
 					//2 is generalized below - no sense doing twice
-					current_in[0] = 0.0;
-					current_in[1] = 0.0;
-					current_in[2] = 0.0;
+					current_pointer_in[0] = 0.0;
+					current_pointer_in[1] = 0.0;
+					current_pointer_in[2] = 0.0;
 				}
 
 				//Find neutral
-				current_out[2] = -(current_out[0] + current_out[1]);
+				current_pointer_out[2] = -(current_pointer_out[0] + current_pointer_out[1]);
 
 			}//end split-phase, center tapped xformer
 			else if (has_phase(PHASE_S))	//Split-phase line
@@ -4154,26 +4219,26 @@ int link_object::CurrentCalculation(int nodecall)
 							   a_mat[1][0]*tnode->voltage[0]-
 							   a_mat[1][1]*tnode->voltage[1];
 
-					current_in[0] = From_Y[0][0]*vtemp[0]+
-									From_Y[0][1]*vtemp[1];
+					current_pointer_in[0] = From_Y[0][0]*vtemp[0]+
+											From_Y[0][1]*vtemp[1];
 
-					current_in[1] = From_Y[1][0]*vtemp[0]+
-									From_Y[1][1]*vtemp[1];
+					current_pointer_in[1] = From_Y[1][0]*vtemp[0]+
+											From_Y[1][1]*vtemp[1];
 
 					//Calculate neutral current
-					current_in[2] = tn[0]*current_in[0] + tn[1]*current_in[1];
+					current_pointer_in[2] = tn[0]*current_pointer_in[0] + tn[1]*current_pointer_in[1];
 				}
 				else	//Not valid
 				{
-					current_in[0] = 0.0;
-					current_in[1] = 0.0;
-					current_in[2] = 0.0;
+					current_pointer_in[0] = 0.0;
+					current_pointer_in[1] = 0.0;
+					current_pointer_in[2] = 0.0;
 				}
 
 				//Cuurent out is the same as current in for triplex (simple lines)
-				current_out[0] = current_in[0];
-				current_out[1] = current_in[1];
-				current_out[2] = current_in[2];
+				current_pointer_out[0] = current_pointer_in[0];
+				current_pointer_out[1] = current_pointer_in[1];
+				current_pointer_out[2] = current_pointer_in[2];
 
 				//See if our nature requires a lock
 				if (flock)
@@ -4182,9 +4247,13 @@ int link_object::CurrentCalculation(int nodecall)
 					WRITELOCK_OBJECT(fobjval);
 				}
 
-				//Current in values go to the injection
-				fnode->current_inj[0] += current_in[0];
-				fnode->current_inj[1] += current_in[1];
+				//Check to see which mode we're in
+				if (link_fault_mode == false)
+				{
+					//Current in values go to the injection
+					fnode->current_inj[0] += current_pointer_in[0];
+					fnode->current_inj[1] += current_pointer_in[1];
+				}
 
 				//If we locked our from node, be sure to let it go
 				if (flock)
@@ -4194,7 +4263,7 @@ int link_object::CurrentCalculation(int nodecall)
 				}
 
 				//Replicate to the "original parent" if needed
-				if (ofnode != NULL)
+				if ((ofnode != NULL) && (link_fault_mode == false))
 				{
 					//See if our nature requires a lock
 					if (flock)
@@ -4204,8 +4273,8 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Apply current injections to child
-					ofnode->current_inj[0] += current_in[0];
-					ofnode->current_inj[1] += current_in[1];
+					ofnode->current_inj[0] += current_pointer_in[0];
+					ofnode->current_inj[1] += current_pointer_in[1];
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -4305,61 +4374,61 @@ int link_object::CurrentCalculation(int nodecall)
 					//See if phases are valid
 					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 					{
-						current_out[0] = From_Y[0][0]*vtemp[0]+
-										From_Y[0][1]*vtemp[1]+
-										From_Y[0][2]*vtemp[2] - 
-										LinkHistTermL[0];
+						current_pointer_out[0] = From_Y[0][0]*vtemp[0]+
+												 From_Y[0][1]*vtemp[1]+
+												 From_Y[0][2]*vtemp[2] -
+												 LinkHistTermL[0];
 
 						//Update our vmag value
 						vmagtemp[0] = vtemp[0].Mag();
 					}
 					else
 					{
-						current_out[0] = 0.0;
+						current_pointer_out[0] = 0.0;
 						vmagtemp[0] = 0.0;
 					}
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 					{
-						current_out[1] = From_Y[1][0]*vtemp[0]+
-										From_Y[1][1]*vtemp[1]+
-										From_Y[1][2]*vtemp[2] -
-										LinkHistTermL[1];
+						current_pointer_out[1] = From_Y[1][0]*vtemp[0]+
+												 From_Y[1][1]*vtemp[1]+
+												 From_Y[1][2]*vtemp[2] -
+												 LinkHistTermL[1];
 
 						//Update our vmag value
 						vmagtemp[1] = vtemp[1].Mag();
 					}
 					else
 					{
-						current_out[1] = 0.0;
+						current_pointer_out[1] = 0.0;
 						vmagtemp[1] = 0.0;
 					}
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 					{
-						current_out[2] = From_Y[2][0]*vtemp[0]+
-									From_Y[2][1]*vtemp[1]+
-									From_Y[2][2]*vtemp[2] - 
-									LinkHistTermL[2];
+						current_pointer_out[2] = From_Y[2][0]*vtemp[0]+
+												 From_Y[2][1]*vtemp[1]+
+												 From_Y[2][2]*vtemp[2] -
+												 LinkHistTermL[2];
 
 						//Update our vmag value
 						vmagtemp[2] = vtemp[2].Mag();
 					}
 					else
 					{
-						current_out[2] = 0.0;
+						current_pointer_out[2] = 0.0;
 						vmagtemp[2] = 0.0;
 					}
 
 					//Now calculate current_in
-					current_in[0] = current_out[0] + shunt_current_val[0];
-					current_in[1] = current_out[1] + shunt_current_val[1];
-					current_in[2] = current_out[2] + shunt_current_val[2];
+					current_pointer_in[0] = current_pointer_out[0] + shunt_current_val[0];
+					current_pointer_in[1] = current_pointer_out[1] + shunt_current_val[1];
+					current_pointer_in[2] = current_pointer_out[2] + shunt_current_val[2];
 
 					//Adjust current out
-					current_out[0] -= shunt_current_val[3];
-					current_out[1] -= shunt_current_val[4];
-					current_out[2] -= shunt_current_val[5];
+					current_pointer_out[0] -= shunt_current_val[3];
+					current_pointer_out[1] -= shunt_current_val[4];
+					current_pointer_out[2] -= shunt_current_val[5];
 
 					//Final determination of "convergence" or not
 					if (fabs(vmagtemp[0]-inrush_vdiffmag_prev[0]) > inrush_tol_value)
@@ -4400,52 +4469,52 @@ int link_object::CurrentCalculation(int nodecall)
 					//See if phases are valid
 					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 					{
-						current_out[0] = From_Y[0][0]*vtemp[0]+
-										From_Y[0][1]*vtemp[1]+
-										From_Y[0][2]*vtemp[2];
+						current_pointer_out[0] = From_Y[0][0]*vtemp[0]+
+												 From_Y[0][1]*vtemp[1]+
+												 From_Y[0][2]*vtemp[2];
 					}
 					else
-						current_out[0] = 0.0;
+						current_pointer_out[0] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 					{
-						current_out[1] = From_Y[1][0]*vtemp[0]+
-										From_Y[1][1]*vtemp[1]+
-										From_Y[1][2]*vtemp[2];
+						current_pointer_out[1] = From_Y[1][0]*vtemp[0]+
+												 From_Y[1][1]*vtemp[1]+
+												 From_Y[1][2]*vtemp[2];
 					}
 					else
-						current_out[1] = 0.0;
+						current_pointer_out[1] = 0.0;
 
 					if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 					{
-						current_out[2] = From_Y[2][0]*vtemp[0]+
-									From_Y[2][1]*vtemp[1]+
-									From_Y[2][2]*vtemp[2];
+						current_pointer_out[2] = From_Y[2][0]*vtemp[0]+
+												 From_Y[2][1]*vtemp[1]+
+												 From_Y[2][2]*vtemp[2];
 					}
 					else
-						current_out[2] = 0.0;
+						current_pointer_out[2] = 0.0;
 
 					//Now calculate current_in
-					current_in[0] = c_mat[0][0]*tnode->voltage[0]+
-									c_mat[0][1]*tnode->voltage[1]+
-									c_mat[0][2]*tnode->voltage[2]+
-									d_mat[0][0]*current_out[0]+
-									d_mat[0][1]*current_out[1]+
-									d_mat[0][2]*current_out[2];
+					current_pointer_in[0] = c_mat[0][0]*tnode->voltage[0]+
+											c_mat[0][1]*tnode->voltage[1]+
+											c_mat[0][2]*tnode->voltage[2]+
+											d_mat[0][0]*current_pointer_out[0]+
+											d_mat[0][1]*current_pointer_out[1]+
+											d_mat[0][2]*current_pointer_out[2];
 
-					current_in[1] = c_mat[1][0]*tnode->voltage[0]+
-									c_mat[1][1]*tnode->voltage[1]+
-									c_mat[1][2]*tnode->voltage[2]+
-									d_mat[1][0]*current_out[0]+
-									d_mat[1][1]*current_out[1]+
-									d_mat[1][2]*current_out[2];
+					current_pointer_in[1] = c_mat[1][0]*tnode->voltage[0]+
+											c_mat[1][1]*tnode->voltage[1]+
+											c_mat[1][2]*tnode->voltage[2]+
+											d_mat[1][0]*current_pointer_out[0]+
+											d_mat[1][1]*current_pointer_out[1]+
+											d_mat[1][2]*current_pointer_out[2];
 
-					current_in[2] = c_mat[2][0]*tnode->voltage[0]+
-									c_mat[2][1]*tnode->voltage[1]+
-									c_mat[2][2]*tnode->voltage[2]+
-									d_mat[2][0]*current_out[0]+
-									d_mat[2][1]*current_out[1]+
-									d_mat[2][2]*current_out[2];
+					current_pointer_in[2] = c_mat[2][0]*tnode->voltage[0]+
+											c_mat[2][1]*tnode->voltage[1]+
+											c_mat[2][2]*tnode->voltage[2]+
+											d_mat[2][0]*current_pointer_out[0]+
+											d_mat[2][1]*current_pointer_out[1]+
+											d_mat[2][2]*current_pointer_out[2];
 				}//End "normal" calculation
 
 				//See if our nature requires a lock
@@ -4455,10 +4524,14 @@ int link_object::CurrentCalculation(int nodecall)
 					WRITELOCK_OBJECT(fobjval);
 				}
 
-				//Current in is just the same
-				fnode->current_inj[0] += current_in[0];
-				fnode->current_inj[1] += current_in[1];
-				fnode->current_inj[2] += current_in[2];
+				//Check to see which mode we're in
+				if (link_fault_mode == false)
+				{
+					//Current in is just the same
+					fnode->current_inj[0] += current_pointer_in[0];
+					fnode->current_inj[1] += current_pointer_in[1];
+					fnode->current_inj[2] += current_pointer_in[2];
+				}
 
 				//If we locked our from node, be sure to let it go
 				if (flock)
@@ -4468,7 +4541,7 @@ int link_object::CurrentCalculation(int nodecall)
 				}
 
 				//Replicate to the "original parent" if needed
-				if (ofnode != NULL)
+				if ((ofnode != NULL) && (link_fault_mode == false))
 				{
 					//See if our nature requires a lock
 					if (flock)
@@ -4478,9 +4551,9 @@ int link_object::CurrentCalculation(int nodecall)
 					}
 
 					//Apply current injections to childed object
-					ofnode->current_inj[0] += current_in[0];
-					ofnode->current_inj[1] += current_in[1];
-					ofnode->current_inj[2] += current_in[2];
+					ofnode->current_inj[0] += current_pointer_in[0];
+					ofnode->current_inj[1] += current_pointer_in[1];
+					ofnode->current_inj[2] += current_pointer_in[2];
 
 					//If we locked our from node, be sure to let it go
 					if (flock)
@@ -4493,8 +4566,8 @@ int link_object::CurrentCalculation(int nodecall)
 		}//End is closed
 		else	//Open, so no current
 		{
-			current_in[0] = current_in[1] = current_in[2] = 0.0;
-			current_out[0] = current_out[1] = current_out[2] = 0.0;
+			current_pointer_in[0] = current_pointer_in[1] = current_pointer_in[2] = 0.0;
+			current_pointer_out[0] = current_pointer_out[1] = current_pointer_out[2] = 0.0;
 		}
 
 		//Flag us as done
@@ -8978,25 +9051,25 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				{
 					//set up the remaining 4 fault specific equations in C_mat before calculating the fault current
 					if(*implemented_fault == 1){ //SLG-A -> Ifb=Ifc=Vax=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x03) { //three-phase: ABC. check if BC is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if BC is in phases
 							CI_mat[1][1] = CI_mat[2][2]=complex(1,0);
 							CI_mat[0][0] = fault_Z*-1.0;
 							CV_mat[0][0] = complex(1,0);
 							type_fault = 133;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x02) { //two phase: AB. Check for B phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x06) == 0x06) { //two phase: AB. Check for B phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 1221;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x01) { //two phase: AC. Check for C in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x05) == 0x05) { //two phase: AC. Check for C in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 1222;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //single-phase: only A. There should be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04) { //single-phase: only A. There should be nothing in phases
 							CI_mat[0][0] = fault_Z*-1.0;
 							CV_mat[0][0] = complex(1,0);
 							type_fault = 111;
@@ -9004,25 +9077,25 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 
 					} else if(*implemented_fault == 2){ //SLG-B -> Ifa=Ifc=Vbx=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x05) { //three-phase: ABC. check if AC is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if AC is in phases
 							CI_mat[0][0] = CI_mat[2][2]=complex(1,0);
 							CI_mat[1][1] = fault_Z*-1.0;
 							CV_mat[1][1] = complex(1,0);
 							type_fault = 233;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x04) { //two phase: AB. Check for A in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x06) == 0x06) { //two phase: AB. Check for A in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 2221;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x01) { //two phase: BC. Check for C in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x03) == 0x03) { //two phase: BC. Check for C in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 2222;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //single-phase: only B. There should be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02) { //single-phase: only B. There should be nothing in phases
 							CI_mat[0][0] = fault_Z*-1.0;
 							CV_mat[0][0] = complex(1,0);
 							type_fault = 211;
@@ -9030,25 +9103,25 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 
 					} else if(*implemented_fault == 3){ //SLG-C -> Ifa=Ifb=Vcx=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x06) { //three-phase: ABC. check if AB is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if AB is in phases
 							CI_mat[0][0] = CI_mat[1][1]=complex(1,0);
 							CI_mat[2][2] = fault_Z*-1.0;
 							CV_mat[2][2] = complex(1,0);
 							type_fault = 333;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x04) { //two phase: AC. Check for A in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x05) == 0x05) { //two phase: AC. Check for A in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 3221;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x02) { //two phase: BC. Check for B in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x03) == 0x03) { //two phase: BC. Check for B in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
 							type_fault = 3222;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //single-phase: only C. There should be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01) { //single-phase: only C. There should be nothing in phases
 							CI_mat[0][0] = fault_Z*-1.0;
 							CV_mat[0][0] = complex(1,0);
 							type_fault = 311;
@@ -9056,14 +9129,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 
 					} else if(*implemented_fault == 4){ //DLG-AB -> Ifc=Vax=Vbx=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x01) { //three-phase: ABC. check if C is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if C is in phases
 							CI_mat[0][2] = complex(1,0);
 							CI_mat[1][0] = CI_mat[2][1] = (fault_Z + ground_Z)*-1.0;
 							CI_mat[1][1] = CI_mat[2][0] = ground_Z*-1.0;
 							CV_mat[1][0] = CV_mat[2][1] = complex(1,0);
 							type_fault = 433;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: AB. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x06) == 0x06) { //two phase: AB. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[1][1] =  (fault_Z + ground_Z)*-1.0;
 							CI_mat[0][1] = CI_mat[1][0] =  ground_Z*-1.0;
 							CV_mat[0][0] = CV_mat[1][1] = complex(1,0);
@@ -9072,14 +9145,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 
 					} else if(*implemented_fault == 5){ //DLG-BC -> Ifa=Vbx=Vcx=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x04) { //three-phase: ABC. check if A is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if A is in phases
 							CI_mat[0][0] = complex(1,0);
 							CI_mat[1][1] = CI_mat[2][2] = (fault_Z + ground_Z)*-1.0;
 							CI_mat[1][2] = CI_mat[2][1] = ground_Z*-1.0;
 							CV_mat[1][1] = CV_mat[2][2] = complex(1,0);
 							type_fault = 533;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: BC. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x03) == 0x03) { //two phase: BC. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[1][1] =  (fault_Z + ground_Z)*-1.0;
 							CI_mat[0][1] = CI_mat[1][0] =  ground_Z*-1.0;
 							CV_mat[0][0] = CV_mat[1][1] = complex(1,0);
@@ -9088,14 +9161,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 						
 					} else if(*implemented_fault == 6){ //DLG-CA -> Ifb=Vax=Vcx=Vxg=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x02) { //three-phase: ABC. check if B is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if B is in phases
 							CI_mat[0][1] = complex(1,0);
 							CI_mat[1][2] = CI_mat[2][0] = (fault_Z + ground_Z)*-1.0;
 							CI_mat[1][0] = CI_mat[2][2] = ground_Z*-1.0;
 							CV_mat[1][2] = CV_mat[2][0] = complex(1,0);
 							type_fault = 633;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: CA. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x05) == 0x05) { //two phase: CA. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[1][1] =  (fault_Z + ground_Z)*-1.0;
 							CI_mat[0][1] = CI_mat[1][0] =  ground_Z*-1.0;
 							CV_mat[0][0] = CV_mat[1][1] = complex(1,0);
@@ -9104,14 +9177,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 						
 					} else if(*implemented_fault == 7){ //LL-AB -> Ifa+Ifb=Ifc=Vax=Vbx=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x01) { //three-phase: ABC. check if C is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if C is in phases
 							CI_mat[0][2] = CI_mat[1][0] = CI_mat[1][1]=complex(1,0);
 							CI_mat[2][0] = fault_Z*-1.0;
 							CV_mat[2][0] = complex(1,0);
 							CV_mat[2][1] = complex(-1,0);
 							type_fault = 733;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: AB. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x06) == 0x06) { //two phase: AB. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[0][1] =  complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
@@ -9121,14 +9194,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 						
 					} else if(*implemented_fault == 8){ //LL-BC -> Ifb+Ifc=Ifa=Vbx=Vcx=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x04) { //three-phase: ABC. check if A is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if A is in phases
 							CI_mat[0][0] = CI_mat[1][1] = CI_mat[1][2]=complex(1,0);
 							CI_mat[2][1] = fault_Z*-1.0;
 							CV_mat[2][1] = complex(1,0);
 							CV_mat[2][2] = complex(-1,0);
 							type_fault = 833;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: BC. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x03) == 0x03) { //two phase: BC. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[0][1] =  complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
@@ -9138,14 +9211,14 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						mesh_fault_current_calc(pf_mesh_fault_impedance_matrix,CV_mat,CI_mat,NR_busdata[NR_swing_bus_reference].V,type_fault);
 						
 					} else if(*implemented_fault == 9){ //LL-CA -> Ifa+Ifc=Ifb=Vax=Vcx=0
-						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x02) { //three-phase: ABC. check if B is in phases
+						if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07) { //three-phase: ABC. check if B is in phases
 							CI_mat[0][1] = CI_mat[1][0] = CI_mat[1][2]=complex(1,0);
 							CI_mat[2][2] = fault_Z*-1.0;
 							CV_mat[2][2] = complex(1,0);
 							CV_mat[2][0] = complex(-1,0);
 							type_fault = 933;
 						}
-						else if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x00) { //two phase: CA. There shold be nothing in phases
+						else if ((NR_branchdata[NR_branch_reference].phases & 0x05) == 0x05) { //two phase: CA. There shold be nothing in phases
 							CI_mat[0][0] = CI_mat[0][1] =  complex(1,0);
 							CI_mat[1][0] = fault_Z*-1.0;
 							CV_mat[1][0] = complex(1,0);
@@ -10741,13 +10814,22 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 				ret_value = del_fault_from_linked_list(temp_fault_number);
 
 				//Make sure it worked
-				if (ret_value != 1)
+				if (ret_value == -1)
 				{
 					GL_THROW("Unable to delete fault from linked list");
 					/*  TROUBLESHOOT
 					While attempting to remove a fault's reference from the tracking linked list,
 					an error occurred.  Please check your code.  If the error persists, please submit
 					your code and a bug report via the ticketing system.
+					*/
+				}
+				else if (ret_value == 0)	//Empty list, this fault never triggered anything
+				{
+					gl_warning("Empty fault list - nothing was ever triggered");
+					/*  TROUBLESHOOT
+					While attempting to remove a fault's reference from the tracking linked list, no
+					fault at all was found.  This may mean the fault cleared before any protective device
+					acted, or there are no protective devices.
 					*/
 				}
 
@@ -10839,6 +10921,12 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 	{
 		int phaseCheck;
 		phaseCheck = 0;
+		complex FaultVoltage[3];
+
+		//Initialize fault voltage value
+		FaultVoltage[0] = complex(0.0,0.0);
+		FaultVoltage[1] = complex(0.0,0.0);
+		FaultVoltage[2] = complex(0.0,0.0);
 
 		if ((fault_type == 133) || (fault_type == 233) || (fault_type == 333) || (fault_type == 433) || (fault_type == 533) || (fault_type == 633) || (fault_type == 733) || (fault_type == 833) || (fault_type == 933) || (fault_type == 1033) || (fault_type == 1133)) {
 			phaseCheck = 3;
@@ -10885,18 +10973,28 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 				lmatrix_vmult(&CFinv[0][0],&VFrhs[0],&IVf[0],2);
 
 				//Populate fault current into the output
-                                if (fault_type == 111) {
+				if (fault_type == 111) {
 					If_out[0] = IVf[0];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[0] = If_out[0];
+
+					//Store the voltage
+					FaultVoltage[0] = IVf[1];
 				} else if (fault_type == 211) {
 					If_out[1] = IVf[0];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[1] = If_out[1];
+
+					//Store the voltage
+					FaultVoltage[1] = IVf[1];
+
 				} else if (fault_type == 311) {
 					If_out[2] = IVf[0];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[2] = If_out[2];
+
+					//Store the voltage
+					FaultVoltage[2] = IVf[1];
 				}
 
 			}
@@ -10971,6 +11069,10 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[0] = If_out[0];
 						If_in[1] = If_out[1];
+
+						//Store the voltage
+						FaultVoltage[0] = IVf[2];
+						FaultVoltage[1] = IVf[3];
 					}
 				else if ((fault_type == 522) || (fault_type == 822) || (fault_type == 2222) || (fault_type == 3222)) //BC
 					{
@@ -10980,6 +11082,10 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[1] = If_out[1];
 						If_in[2] = If_out[2];
+
+						//Store the voltage
+						FaultVoltage[1] = IVf[2];
+						FaultVoltage[2] = IVf[3];
 					}
 				else if ((fault_type == 622) || (fault_type == 922) || (fault_type == 1222) || (fault_type == 3221)) //CA
 					{
@@ -10989,6 +11095,10 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[0] = If_out[0];
 						If_in[2] = If_out[2];
+
+						//Store the voltage
+						FaultVoltage[0] = IVf[2];
+						FaultVoltage[2] = IVf[3];
 					}
 			}
 		else if (phaseCheck == 3)
@@ -11057,11 +11167,197 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 				If_in[0] = If_out[0];
 				If_in[1] = If_out[1];
 				If_in[2] = If_out[2];
+
+				//Store the voltage
+				FaultVoltage[0] = IVf[3];
+				FaultVoltage[1] = IVf[4];
+				FaultVoltage[2] = IVf[5];
+
+				//Call the propagation routine
+				//Fault is always assumed to be on the "to" end of the branch, based on above work
+				mesh_fault_current_propagation(FaultVoltage,NR_branchdata[NR_branch_reference].to);
 			}
 		else
 			{
 				GL_THROW("Invalid phase information. Expects one-phase, two-phase, or three-phase");
 			}
+}
+
+//Function to propagate the meshed fault current computed from the mesh_fault_current_calc routine to
+//all upstream links
+void link_object::mesh_fault_current_propagation(complex *VFault, unsigned int fault_bus)
+{
+	unsigned int indexval;
+	complex **voltage_storage = NULL;
+	bool prev_node_state, good_to_continue;
+	int prev_node_type, pfresult, return_func_val;
+	link_object *temp_lnk_obj;
+
+	//Allocate the storage array
+	voltage_storage = (complex **)gl_malloc(NR_bus_count*sizeof(complex *));
+
+	//Make sure it worked
+	if (voltage_storage == NULL)
+	{
+		GL_THROW("link_object: failed to allocate memory for base voltage values!");
+		/*  TROUBLESHOOT
+		While attempting to allocate memory for storing the fallback voltage values,
+		an error occurred.  Please try again, assuming proper inputs.  If the error persists,
+		please submit your code and a bug report via the ticketing system.
+		*/
+	}
+
+	//Now loop for allocate/copy
+	for (indexval=0; indexval<NR_bus_count; indexval++)
+	{
+		//Allocate this entry
+		voltage_storage[indexval] = (complex *)gl_malloc(3*sizeof(complex));
+
+		//Check it
+		if (voltage_storage[indexval] == NULL)
+		{
+			GL_THROW("link_object: failed to allocate memory for base voltage values!");
+			//Defined above
+		}
+
+		//Copy the voltage values
+		voltage_storage[indexval][0] = NR_busdata[indexval].V[0];
+		voltage_storage[indexval][1] = NR_busdata[indexval].V[1];
+		voltage_storage[indexval][2] = NR_busdata[indexval].V[2];
+	}
+
+	//Voltage is stored, store the other aspects we'll be changing
+	prev_node_type = NR_busdata[fault_bus].type;
+	prev_node_state = NR_busdata[fault_bus].swing_functions_enabled;
+
+	//Set it up as a swing node
+	NR_busdata[fault_bus].type = 2;	//Swing
+	NR_busdata[fault_bus].swing_functions_enabled = true;
+
+	//Put in the fault voltages
+	for (indexval=0; indexval<3; indexval++)
+	{
+		if (VFault[indexval] != 0.0)
+		{
+			NR_busdata[fault_bus].V[indexval] = VFault[indexval];
+		}
+		//Default else - not the faulted phase, just leave it
+	}
+
+	//Now call the powerflow with this "new swing node" to get the new results
+	pfresult = call_powerflow_calc();
+
+	//Make sure it didn't fail -- if it did, well, just exit
+	if (pfresult != 1)
+	{
+		gl_error("link_object: failed to solve updated mesh powerflow for fault_current calculation");
+		/* TROUBLESHOOT
+		While attempting to solve the powerflow associated with the mesh fault current calculation, a divergent
+		or invalid powerflow was encountered.  The fault current results are invalid.
+		*/
+
+		//Flag us
+		good_to_continue = false;
+	}
+	else	//Must be valid
+	{
+		good_to_continue = true;
+	}
+
+	//If the powerflow was successful, continue
+	if (good_to_continue == true)
+	{
+		//This may cause issues with parallelization -- may need to be revisited
+		for (indexval=0; indexval<NR_branch_count; indexval++)
+		{
+			//Execute the function
+			return_func_val = ((int (*)(OBJECT *, bool))(*NR_branchdata[indexval].current_calc))(NR_branchdata[indexval].obj,true);
+
+			//Do a general success check
+			if (return_func_val != 1)
+			{
+				GL_THROW("link_object: failure to calculate current from link:%s", NR_branchdata[indexval].name ? NR_branchdata[indexval].name : "Unnamed");
+				/*  TROUBLESHOOT
+				While attempting to call the current calculation update, an error was encountered.
+				*/
+			}
+		}
+	}//End powerflow was valid, so continue
+
+	//Regardless of a "success or failure" of the powerflow, undo what we did above
+
+	//Undo the swing flags
+	NR_busdata[fault_bus].type = prev_node_type;
+	NR_busdata[fault_bus].swing_functions_enabled = prev_node_state;
+
+	//Put the old voltages back (so they are no longer fault voltages)
+	//De-allocate the subarrays in the process
+	for (indexval=0; indexval<NR_bus_count; indexval++)
+	{
+		//Restore the values
+		NR_busdata[indexval].V[0] = voltage_storage[indexval][0];
+		NR_busdata[indexval].V[1] = voltage_storage[indexval][1];
+		NR_busdata[indexval].V[2] = voltage_storage[indexval][2];
+
+		//Now free this matrix
+		gl_free(voltage_storage[indexval]);
+	}
+
+	//Release the voltage array
+	gl_free(voltage_storage);
+}
+
+//Functionalized call to the powerflow solver - mostly just so the catch/try is all compact
+int link_object::call_powerflow_calc(void)
+{
+	int64 PFresult;
+	int overallresult;
+	bool bad_computation;
+	NRSOLVERMODE powerflow_type;
+
+	//Start out assuming that we're not a bad computation
+	bad_computation = false;
+
+	//Depending on operation mode, call solver appropriately
+	if (enable_subsecond_models)	//Deltamode is flagged on a module level, which means powerflow should really be going that route
+	{
+		powerflow_type = PF_DYNCALC;	//Built on an overarching assumption (to be implemented elsewhere) that reconfiguration NEVER occurs at the 0th timestep
+	}//End deltamode
+	else	//Normal mode
+	{
+		powerflow_type = PF_NORMAL;
+	}
+
+	//Put the powerflow call in a try/catch, since GL_THROWs may occur
+	try {
+
+		//Copied, more or less, from node.cpp call to solver_nr
+		//Call the powerflow routine
+		PFresult = solver_nr(NR_bus_count, NR_busdata, NR_branch_count, NR_branchdata, &NR_powerflow, powerflow_type, NULL, &bad_computation);
+
+		//De-flag the change - otherwise will cause un-neccesary reallocs
+		NR_admit_change = false;
+
+		if (bad_computation==true)
+		{
+			overallresult = 0;		//Flag as a failure to converge -- may be singular, NaN, etc, but is invalid
+		}
+		else if (PFresult<0)	//Failure to converge
+		{
+			overallresult = 0;		//Flag as a failure to converge (since that's what happened here)
+		}
+		else
+		{
+			overallresult = 1;		//"Succeeded" (solved a powerflow, at least)
+		}
+	}
+	catch (...)	//Don't really care about the error - presumably it is associated with whatever bad powerflow we just did
+	{
+		overallresult = -1;		//Some type of "bad error" occurred - either a throw, or something worse
+	}
+
+	//Return out "status code"
+	return overallresult;
 }
 
 void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase, int fault_type)

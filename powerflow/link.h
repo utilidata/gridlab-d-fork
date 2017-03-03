@@ -10,6 +10,7 @@ EXPORT int isa_link(OBJECT *obj, char *classname);
 EXPORT SIMULATIONMODE interupdate_link(OBJECT *obj, unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
 EXPORT int updatepowercalc_link(OBJECT *obj);
 EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *overloaded);
+EXPORT int updatecurrentcalc_link(OBJECT *obj, bool calc_mode);
 
 #define impedance(X) (B_mat[X][X])
 
@@ -124,7 +125,7 @@ public:
 	static int kmlinit(int (*stream)(const char*,...));
 	int kmldump(int (*stream)(const char*,...));
 	//Current injection calculation function - so it can be called remotely
-	int CurrentCalculation(int nodecall);
+	int CurrentCalculation(int nodecall, bool link_fault_mode);
 
 	void NR_link_presync_fxn(void);
 	void BOTH_link_postsync_fxn(void);
@@ -143,6 +144,8 @@ public:
 	void getDwLinkCurr (int temp_branch_fc); // function obtains the to node current for the link with index temp_branch_fc
 
 	void mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],complex CI[3][3],complex *VSth, int fault_type);
+	void mesh_fault_current_propagation(complex *VFault, unsigned int fault_bus);
+	int call_powerflow_calc(void);	//Functionalized call to solver_nr routine
 	SIMULATIONMODE inter_deltaupdate_link(unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
 
 private:
