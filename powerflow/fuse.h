@@ -37,7 +37,16 @@ public:
 	
 	void fix_fuse_function(TIMESTAMP t0);
 	double cal_t_operation(double_array* TCC, int numPts, double I_fault);
+	double cal_t_operation_defaultTCC(int ampereRating, char32 speed, double I_fault);
 	double fmax(double a, double b);
+	int64 fmin(int64 a, int64 b);
+	int64 fmin_3(int64 a, int64 b, int64 c);
+	void fuse_change_status_function();
+	TIMESTAMP findReplacementTime(TIMESTAMP t0);
+	double cal_t_TCC_based(double maxIf, double_array* TCC);
+	double EnergyThresholdCal(double maxIf, double_array* TCC);
+	double estimateReturnTime(double E_threshold, double E_accumulated, double I_curr);
+	void energyBasedTimeCal(int phaseInd, double maxIf, TIMESTAMP t0);
 
 	void set_fuse_full(char desired_status_A, char desired_status_B, char desired_status_C);	//Used to set individual phases - 0 = blown, 1 = good, 2 = don't care (retain current)
 	void set_fuse_full_reliability(unsigned char desired_status);
@@ -64,10 +73,19 @@ public:
 	double Itrip; // Minimum current rating that causing fuse to melt
 	GL_STRUCT(double_array,meltTCC); // Melting curve: double array storing current and operation time
 	GL_STRUCT(double_array,clearTCC); // Clearing curve: double array storing current and operation time
+
+	// Fuse parameters related to energy-accumulation based method
 	bool energyBased;	// Boolean value indicating whether the fuse operation is based on TCC only, or energy accumulated
+	double curr_past[3];	// current seen by each phase of the fuse in last time step
+	TIMESTAMP t_past[3]; 	// Last time step time for each phase analysis
+	bool isMelt[3]; // boolean value indicating whether each phase of the fuse is melted or not
+	double E_accumulated[3]; 	// Accumulated energy for each phase
+	double E_melt[3]; 	// Melting threshold for each phase
+	double E_clear[3]; 	// cleaning threshold for each phase
+	TIMESTAMP t_return_array[3]; 	// returning time for each phase
+	double t_release;
 
-
-	// Recloser operation variables
+	// Fuse operation variables
 	bool Flag_open; //Flag indicating opening the fuse
 	TIMESTAMP t_open; //Time to open the fuse
 	TIMESTAMP t_fault; //Time at which fuse sees over-current event
@@ -76,6 +94,7 @@ public:
 	bool fuse_fixed; // Flag indicating fuse is fixed or not
 	TIMESTAMP replacement_time; // Time at which fuse is fixed
 	unsigned char fix_phases; // used to record the faulted phases
+	char32 fuseType; // Fuse type
 
 
 	double fuse_resistance;
