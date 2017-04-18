@@ -8,6 +8,7 @@
 #include "node.h"
 
 EXPORT SIMULATIONMODE interupdate_meter(OBJECT *obj, unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
+EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault);
 
 class meter : public node
 {
@@ -29,6 +30,11 @@ public:
 	TIMESTAMP next_time;
 	TIMESTAMP dt;
 	TIMESTAMP last_t;
+	TIMESTAMP status_change_time[100];	// Array of meter phase status change time
+	bool status_on[100];	// Array of meter status (true when on, false when off)
+	bool past_interrupted; // Flag indicating whether before the curent time step, the meter is interrupted or not
+	int count_status_change;	// Count the numbers of meter status changes
+	TIMESTAMP curr_time;	//Time tracking variable
 
 #ifdef SUPPORT_OUTAGES
 	int16 sustained_count;	//reliability sustained event counter

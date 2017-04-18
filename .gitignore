@@ -96,6 +96,7 @@ gldcore/config.h.in~
 */*/*/.dirstamp
 */*/.dirstamp
 gridlabd.bin
+install64/
 install/
 */autotest/*/
 */*/*/autotest/*/

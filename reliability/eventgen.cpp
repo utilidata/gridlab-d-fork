@@ -1381,6 +1381,7 @@ void eventgen::do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type)
 	RELEVANTSTRUCT *temp_struct, *temp_struct_b;
 	void *Extra_Data;
 	double Extra_Data_No_Metrics;
+	int after_count, after_count_sec;
 
 	if (metrics_obj != NULL)
 	{
@@ -1598,15 +1599,34 @@ void eventgen::do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type)
 				//Lock metrics event
 				wlock(metrics_obj_hdr);
 
+				//Check to see which mode we are in
+//				if (meshed_fault_checking_enabled == false)	//"Normal" mode
+//				{
+//					//Call the event updater - call relevant version
+//					if (*secondary_interruption_cnt == true)
+//					{
+//						metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected,UnreliableObjs[index].customers_affected_sec);
+//					}
+//					else	//no secondaries
+//					{
+//						metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected);
+//					}
+//				} //End "normal" fault operations mode
+//				else //Meshed checking -- handle differently
+//				{
 				//Call the event updater - call relevant version
 				if (*secondary_interruption_cnt == true)
 				{
-					metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected,UnreliableObjs[index].customers_affected_sec);
+					// Get current number of customers out of service
+					metrics_obj->count_from_status_change_secondary(&after_count,&after_count_sec, UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time);
+					metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,after_count,after_count_sec);
 				}
 				else	//no secondaries
 				{
 					metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected);
 				}
+
+//				} //End "Meshed mode" checks
 
 				//All done, unlock it
 				wunlock(metrics_obj_hdr);

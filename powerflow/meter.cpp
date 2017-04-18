@@ -116,6 +116,10 @@ meter::meter(MODULE *mod) : node(mod)
 			//PT_double, "measured_reactive[kVar]", PADDR(measured_reactive), has not implemented yet
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 
+		// publish interruption identification function
+		if (gl_publish_function(oclass,	"identify_interrupts", (FUNCTIONADDR)identify_interruptions)==NULL)
+			GL_THROW("Unable to publish identify interrupts function");
+
 		// publish meter reset function
 		if (gl_publish_function(oclass,"reset",(FUNCTIONADDR)meter_reset)==NULL)
 			GL_THROW("unable to publish meter_reset function in %s",__FILE__);
@@ -248,6 +252,16 @@ int meter::init(OBJECT *parent)
 		}
 	}
 
+	// Parameters related to the reliability metrics in LPNORM
+	for (int i = 0; i < 100; i++) {
+		status_change_time[i] = -1; // Set default status change time as negative value
+		status_on[i] = true;
+	}
+
+	past_interrupted = false;
+	count_status_change = 0;
+	curr_time = TS_NEVER;	//Flagging value
+
 	return node::init(parent);
 }
 
@@ -349,6 +363,39 @@ TIMESTAMP meter::sync(TIMESTAMP t0)
 {
 	//Call functionalized meter sync
 	BOTH_meter_sync_fxn();
+
+	// Meshed checking -- for LPNORM implementation
+	if (meshed_fault_checking_enabled == true)
+	{
+		//Initialization
+		if (curr_time == TS_NEVER)
+		{
+			past_interrupted = meter_interrupted;
+			curr_time = t0;
+		}
+
+		//Only worry about checks once per timestep
+		if (curr_time != t0)
+		{
+			// If the meter got interrupted at this time step
+			if (past_interrupted == false && meter_interrupted == true) {
+				status_change_time[count_status_change] = t0;
+				status_on[count_status_change] = false;
+				count_status_change++;
+				past_interrupted = true;
+			}
+			// If the meter got back to normal status from teh interruption at this time step
+			else if (past_interrupted == true && meter_interrupted == false) {
+				status_change_time[count_status_change] = t0;
+				status_on[count_status_change] = true;
+				count_status_change++;
+				past_interrupted = false;
+			}
+
+			// Update tracking variable
+			curr_time = t0;
+		}
+	}
 
 	return node::sync(t0);
 }
@@ -781,6 +828,70 @@ EXPORT SIMULATIONMODE interupdate_meter(OBJECT *obj, unsigned int64 delta_time, 
 	}
 }
 
+EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
+{
+	int totalTime = 0;
+	meter *my = OBJECTDATA(obj,meter);
+	int count, index, total_off_time;
+
+	// Create an array storing off status time only
+	index = 0; // stroing total numbers of off status during this event
+	count = my->count_status_change;
+	int off_time_index[count];
+	// Intialize the off-time array
+	for (int i = 0; i < count; i++)
+	{
+		off_time_index[i] = -1;
+	}
+
+	// Analyze each counted status
+	for (int i = 0; i < my->count_status_change; i++) {
+		// Only analylze the meter status changes within this event time
+		if (my->status_change_time[i] >= event_start_time && my->status_change_time[i] <= event_end_time) {
+			if (my->status_on[i] == false) {
+				off_time_index[index] = i;
+				index++;
+			}
+		}
+	}
+
+	// Calculate the total interruption time during this event
+	total_off_time = 0;
+	for (int i = 0; i < index; i++) {
+		int off_index, on_index;
+
+		// Deal with the corner case:
+		// When the first off time index is the first index in the array status_change_time,
+		// Or the previous "on" status happens before this event starting time
+		if (i == 0 && (off_time_index[i]  == 0 || my->status_change_time[off_time_index[i] - 1] < event_start_time)) {
+			total_off_time += my->status_change_time[off_time_index[i]] - event_start_time;
+		}
+		// Then deal with normal cases
+		else {
+			off_index = off_time_index[i];
+			on_index = off_index - 1;
+			total_off_time += my->status_change_time[off_index] - my->status_change_time[on_index];
+		}
+	}
+
+	// Indetify whether it is interrupted or not, and it is momentrary fault or not
+	if (total_off_time > 0) {
+		*interrupted = true;
+		if (total_off_time > 300) {
+			*momentaryFault = false;
+		}
+		else {
+			*momentaryFault = true;
+		}
+	}
+	else {
+		*interrupted = false;
+		*momentaryFault = false;
+	}
+
+	return 1;
+}
+
 int meter::kmldata(int (*stream)(const char*,...))
 {
 	int phase[3] = {has_phase(PHASE_A),has_phase(PHASE_B),has_phase(PHASE_C)};
@@ -805,5 +916,7 @@ int meter::kmldata(int (*stream)(const char*,...))
 
 	return 0;
 }
+
+
 
 /**@}**/

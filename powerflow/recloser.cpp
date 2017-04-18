@@ -276,6 +276,8 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 
 				t_close = t0+t_reclose;
 
+				t_open = TS_NEVER;	// reset the opening time
+
 				if (t_return > t_close) {
 					t_return = t_close; //  will go to the time that recloser is planned to be re-closed
 				}
@@ -310,8 +312,10 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 
 				Flag_open = false; // will not open the recloser
 				t_fault = TS_NEVER; //set the time recloser sees fault as default value
+				t_open = TS_NEVER;	// reset the opening time
 				count_fast = lockout_fast; // reset the fast-curve count as default values
 				count_slow = lockout_slow; // reset the slow-curve count as default values
+
 
 				if (t_return > TS_NEVER) {
 					t_return = TS_NEVER; // Since there is no fault seen, will go to the end of the simulation (if still no event occurs)

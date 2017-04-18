@@ -13,6 +13,7 @@
 #include <stdarg.h>
 #include "gridlabd.h"
 
+
 typedef struct s_indices {
 	char256 MetricName;			//Name of metric from metric_of_interest
 	double *MetricLoc;			//Pointer to where this metric is calculated
@@ -23,6 +24,8 @@ typedef struct s_custarray {
 	OBJECT *CustomerObj;	//Object pointer to the customer
 	bool *CustInterrupted;	//Pointer to customer "interrupted" flag
 	bool *CustInterrupted_Secondary;	//Pointer to secondary customer "interrupted" flag - may or may not be used
+	double *status_change_time;	// Pointer to customer phase status change time
+	int *count_status_change;	// Pointer to customer phase status change time
 } CUSTARRAY;
 
 class metrics : public gld_object {
@@ -70,6 +73,8 @@ public:
 	void event_ended_sec(OBJECT *event_obj,OBJECT *fault_obj,OBJECT *faulting_obj,TIMESTAMP event_start_time,TIMESTAMP event_end_time,char *fault_type,char *impl_fault,int number_customers_int, int number_customers_int_secondary);
 	int get_interrupted_count(void);
 	void get_interrupted_count_secondary(int *in_outage, int *in_outage_secondary);
+	int count_from_status_change(void);
+	void count_from_status_change_secondary(int *in_outage, int *in_outage_secondary,TIMESTAMP event_start_time,TIMESTAMP event_end_time);
 	void write_metrics(void);
 
 	static CLASS *oclass;
