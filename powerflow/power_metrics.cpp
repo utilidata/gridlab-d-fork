@@ -79,6 +79,9 @@ power_metrics::power_metrics(MODULE *mod) : powerflow_library(mod)
 				GL_THROW("Unable to publish powerflow reliability initialization function");
 			if (gl_publish_function(oclass,	"logfile_extra", (FUNCTIONADDR)logfile_extra)==NULL)
 				GL_THROW("Unable to publish powerflow reliability metrics extra header function");
+			// publish interruption identification function
+			if (gl_publish_function(oclass,	"count_interruptions_secondary", (FUNCTIONADDR)count_from_status_change_secondary)==NULL)
+				GL_THROW("Unable to publish identify interrupts function");
     }
 }
 
@@ -128,12 +131,118 @@ int power_metrics::create(void)
 	//Extra variable (recloser count)
 	Extra_PF_Data = 0.0;
 
+	// Variables related to LPNORM project reliability calculation
+	CustomerCount = 0;
+	total_momentary_interrupts = 0;
+
 	return 1;
 }
 
 int power_metrics::init(OBJECT *parent)
 {
-	//Nothing to do in here - all variables are outputs for now, so if user overrode them, we'll override them back!
+	// Initialize customer objects and counts
+	OBJECT *hdr = OBJECTHDR(this);
+	OBJECT* temp_obj;
+	int index;
+	FINDLIST *metricsObjs;
+	FINDLIST *CandidateObjs;
+	PROPERTY *p;
+
+	// Find metrics and its customer_group
+	metricsObjs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"metrics",FT_END);
+	if(metricsObjs == NULL){
+		GL_THROW("No metrics objects were found");
+		return 0;
+		/* TROUBLESHOOT
+		No metrics objects were found in your .glm file. if you specified a power metrics object, you should have difined a metrics object.
+		*/
+	}
+
+	// Do a numbder check as well
+	if (metricsObjs->hit_count != 1)
+	{
+		GL_THROW("The metrics object number found is not 1 in powermetrics: %s",hdr->name);
+		// Defined above
+	}
+
+	//Let's populate the beast now!
+	temp_obj = NULL;
+	for (index = 0; index < metricsObjs->hit_count; index++)
+	{
+		//Find the object
+		temp_obj = gl_find_next(metricsObjs, temp_obj);
+
+		if (temp_obj == NULL)
+		{
+			GL_THROW("Failed to populate metrics list in powermetrics: %s",hdr->name);
+			/*  TROUBLESHOOT
+			While populating the metrics object list, an object failed to be
+			located.  Please try again.  If the error persists, please submit your
+			code and a bug report to the trac website.
+			*/
+		}
+
+		// Find the metrics customer_group
+		customer_group = get_customer_group(temp_obj, "customer_group");
+	}
+
+	// Find our lucky candidate objects
+	CandidateObjs = gl_find_objects(FL_GROUP,customer_group.get_string());
+	if (CandidateObjs==NULL)
+	{
+		GL_THROW("Failure to find devices for %s specified as: %s",hdr->name,customer_group.get_string());
+		/*  TROUBLESHOOT
+		While attempting to populate the list of devices to check for reliability metrics, the metrics
+		object failed to find any desired objects.  Please make sure the objects exist and try again.
+		If the bug persists, please submit your code using the trac website.
+		*/
+	}
+
+	// Do a zero-find check as well
+	if (CandidateObjs->hit_count == 0)
+	{
+		GL_THROW("Failure to find devices for %s specified as: %s",hdr->name,customer_group.get_string());
+		// Defined above
+	}
+
+	// Pull the count
+	CustomerCount = CandidateObjs->hit_count;
+
+	// Make an array of the customer objects
+	CustomerObjs = (OBJECT**)gl_malloc(CustomerCount*sizeof(OBJECT*));
+
+	//Make sure it worked
+	if (CustomerObjs == NULL)
+	{
+		GL_THROW("Failure to allocate customer list memory in power_metrics:%s",hdr->name);
+		/*  TROUBLESHOOT
+		While allocating the memory for the list of customers, GridLAB-D encountered a problem.
+		Please try again.  If the error persists, please submit your code and a bug report via the
+		trac website.
+		*/
+	}
+
+	//Let's populate the beast now!
+	temp_obj = NULL;
+	for (index=0; index<CustomerCount; index++)
+	{
+		//Find the object
+		temp_obj = gl_find_next(CandidateObjs, temp_obj);
+
+		if (temp_obj == NULL)
+		{
+			GL_THROW("Failed to populate customer list in metrics: %s",hdr->name);
+			/*  TROUBLESHOOT
+			While populating the metrics customer list, an object failed to be
+			located.  Please try again.  If the error persists, please submit your
+			code and a bug report to the trac website.
+			*/
+		}
+
+		// Store customer objects
+		CustomerObjs[index] = temp_obj;
+	}
+
 	return 1;
 }
 
@@ -226,14 +335,22 @@ void power_metrics::calc_MAIFI(void)
 {
 	if (num_cust_total != 0)
 	{
-		MAIFI_num += Extra_PF_Data*num_cust_momentary_interrupted;
-		MAIFI_num_int += Extra_PF_Data*num_cust_momentary_interrupted;
-
 		//See if it was a "momentary" outage - if so, add extra data
-		if (outage_length < 300)	//Less than 5 minutes - "normal" failures are considered momentary
+		// Check meshed_fault_checking_enabled
+		if (meshed_fault_checking_enabled)
 		{
-			MAIFI_num += (double)(num_cust_interrupted);
-			MAIFI_num_int += (double)(num_cust_interrupted);
+			MAIFI_num += (double)(total_momentary_interrupts);
+			MAIFI_num_int += (double)(total_momentary_interrupts);
+		}
+		else {
+			MAIFI_num += Extra_PF_Data*num_cust_momentary_interrupted;
+			MAIFI_num_int += Extra_PF_Data*num_cust_momentary_interrupted;
+
+			if (outage_length < 300)	//Less than 5 minutes - "normal" failures are considered momentary
+			{
+				MAIFI_num += (double)(num_cust_interrupted);
+				MAIFI_num_int += (double)(num_cust_interrupted);
+			}
 		}
 
 		MAIFI = MAIFI_num / ((double)(num_cust_total));
@@ -344,6 +461,74 @@ void power_metrics::check_fault_check(void)
 		}//Mapping of fault_check object
 	}//end fault_check_object_lnk is NULL
 	//Defaulted else - must already be populated
+}
+
+//Function to extract address of outage flag
+char *power_metrics::get_customer_group(OBJECT *obj, char *name)
+{
+	PROPERTY *p = gl_get_property(obj,name);
+	if (p==NULL || p->ptype!=PT_char1024) {
+		GL_THROW("Failed to populate property customer_group from metrics object in powermetrics class");
+		/*  TROUBLESHOOT
+		While populating property customer_group from metrics object, an object failed to be
+		located.  Please try again.  If the error persists, please submit your
+		code and a bug report to the trac website.
+		*/
+		return NULL;
+	}
+
+	return (char*)GETADDR(obj,p);
+}
+
+//Function to obtain number of customers experiencing outage condition - with secondary count
+EXPORT void count_from_status_change_secondary(OBJECT *obj, int *in_outage, int *in_outage_secondary, TIMESTAMP event_start_time, TIMESTAMP event_end_time)
+{
+	int index, in_outage_temp, in_outage_temp_sec, in_outage_temp_sec_total;
+	OBJECT* customerObj;
+	bool interrupted  = false;
+	bool momentaryFault = false;
+	int retval;
+	FUNCTIONADDR funadd = NULL;
+	power_metrics *my = OBJECTDATA(obj,power_metrics);
+
+	//Reset counter
+	in_outage_temp = 0;
+	in_outage_temp_sec = 0;
+	in_outage_temp_sec_total = 0;
+
+	//Loop through the list and get the number of customer objects reported as interrupted
+	for (index = 0; index < my->CustomerCount; index++)
+	{
+		customerObj = my->CustomerObjs[index];
+
+		//Put a fault on the system
+		funadd = (FUNCTIONADDR)(gl_get_function(customerObj,"identify_interrupts"));
+
+		//Make sure it was found
+		if (funadd == NULL)
+		{
+			GL_THROW("Unable to identify interruptions from customer %s",customerObj->name);
+			//Defined above
+		}
+
+		// Obtain this meter customer interruption type (primary or secondary or no interruption)
+		retval = ((int (*)(OBJECT*, TIMESTAMP, TIMESTAMP, bool*, bool*))(*funadd))(customerObj, event_start_time,event_end_time,&interrupted, &momentaryFault);
+
+		if (interrupted == true && momentaryFault == false){
+			in_outage_temp++;
+		}
+		if (interrupted == true && momentaryFault == true){
+			in_outage_temp_sec++;
+		}
+
+		// Add up the total momentary customer interruptions during this event
+		in_outage_temp_sec_total += retval;
+		my->total_momentary_interrupts = in_outage_temp_sec_total;
+	}
+
+	//Pass the value back
+	*in_outage = in_outage_temp;
+	*in_outage_secondary = in_outage_temp_sec;
 }
 
 //Exported function for reliability module to call to calculate metrics

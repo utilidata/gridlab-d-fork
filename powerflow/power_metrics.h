@@ -8,6 +8,8 @@
 #include "powerflow_library.h"
 #include "fault_check.h"
 
+EXPORT void count_from_status_change_secondary(OBJECT *obj, int *in_outage, int *in_outage_secondary,TIMESTAMP event_start_time,TIMESTAMP event_end_time);
+
 class power_metrics : public powerflow_library
 {
 public:
@@ -46,6 +48,12 @@ public:
 	double outage_length_normalized;
 	double stat_base_time_value;
 	OBJECT *rel_metrics;	//Link to reliability metrics object
+
+	char1024 customer_group;
+	int CustomerCount;
+	OBJECT** CustomerObjs;
+	int total_momentary_interrupts;
+
 private:
 	double SAIFI_num;
 	double SAIDI_num;
@@ -56,6 +64,8 @@ private:
 	double ASAI_num_int;
 	double MAIFI_num_int;
 	fault_check *fault_check_object_lnk;	//Link to fault_check object - so it only has to be mapped once
+
+	char *get_customer_group(OBJECT *obj, char *name);	//Function to obtain the customer group property from metrics object
 };
 
 EXPORT int calc_pfmetrics(OBJECT *callobj, OBJECT *calcobj, int number_int, int number_int_secondary, int total_customers, TIMESTAMP rest_time_val, TIMESTAMP base_time_val);

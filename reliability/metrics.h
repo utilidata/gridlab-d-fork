@@ -73,8 +73,6 @@ public:
 	void event_ended_sec(OBJECT *event_obj,OBJECT *fault_obj,OBJECT *faulting_obj,TIMESTAMP event_start_time,TIMESTAMP event_end_time,char *fault_type,char *impl_fault,int number_customers_int, int number_customers_int_secondary);
 	int get_interrupted_count(void);
 	void get_interrupted_count_secondary(int *in_outage, int *in_outage_secondary);
-	int count_from_status_change(void);
-	void count_from_status_change_secondary(int *in_outage, int *in_outage_secondary,TIMESTAMP event_start_time,TIMESTAMP event_end_time);
 	void write_metrics(void);
 
 	static CLASS *oclass;

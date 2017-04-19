@@ -482,14 +482,6 @@ int metrics::init(OBJECT *parent)
 		}
 		//Defaulted else - unwanted
 
-		//Meshed checking -- handle differently for LPNORM reliability metrics
-//		if (meshed_fault_checking_enabled == true) {
-//
-//
-//
-//
-//		}
-
 	}//end population loop
 
 	//Free up list
@@ -849,54 +841,6 @@ void metrics::get_interrupted_count_secondary(int *in_outage, int *in_outage_sec
 
 		//Assumes secondary metric exists, otherwise we shouldn't be here
 		if (*Customers[index].CustInterrupted_Secondary == true)
-			in_outage_temp_sec++;
-	}
-
-	//Pass the value back
-	*in_outage = in_outage_temp;
-	*in_outage_secondary = in_outage_temp_sec;
-}
-
-//Function to obtain number of customers experiencing outage condition - with secondary count
-void metrics::count_from_status_change_secondary(int *in_outage, int *in_outage_secondary, TIMESTAMP event_start_time, TIMESTAMP event_end_time)
-{
-	int index, in_outage_temp, in_outage_temp_sec;
-	OBJECT* customerObj;
-	bool interrupted  = false;
-	bool momentaryFault = false;
-	int retval;
-	FUNCTIONADDR funadd = NULL;
-	OBJECT *hdr = OBJECTHDR(this);
-
-	//Reset counter
-	in_outage_temp = 0;
-	in_outage_temp_sec = 0;
-
-	//Loop through the list and get the number of customer objects reported as interrupted
-	for (index=0; index<CustomerCount; index++)
-	{
-		customerObj = Customers[index].CustomerObj;
-
-//		// Link to ourselves
-//		meter *thismeter = OBJECTDATA(customerObj,meter);
-
-		//Put a fault on the system
-		funadd = (FUNCTIONADDR)(gl_get_function(customerObj,"identify_interrupts"));
-
-		//Make sure it was found
-		if (funadd == NULL)
-		{
-			GL_THROW("Unable to identify interruptions from customer %s",customerObj->name);
-			//Defined above
-		}
-
-		// Obtain this meter customer interruption type (primary or secondary or no interruption)
-//		retval = thismeter->identify_interruptions(event_start_time, event_end_time, &interrupted, &momentaryFault);
-		retval = ((int (*)(OBJECT*, TIMESTAMP, TIMESTAMP, bool*, bool*))(*funadd))(customerObj, event_start_time,event_end_time,&interrupted, &momentaryFault);
-
-		if (interrupted == true && momentaryFault == false)
-			in_outage_temp++;
-		else if (interrupted == true && momentaryFault == true)
 			in_outage_temp_sec++;
 	}
 

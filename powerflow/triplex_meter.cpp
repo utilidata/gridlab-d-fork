@@ -687,8 +687,8 @@ EXPORT SIMULATIONMODE interupdate_triplex_meter(OBJECT *obj, unsigned int64 delt
 EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
 {
 	int totalTime = 0;
-	meter *my = OBJECTDATA(obj,meter);
-	int count, index, total_off_time;
+	triplex_meter *my = OBJECTDATA(obj,triplex_meter);
+	int count, index, total_off_time, interruptions_count, diff_time;
 
 	// Create an array storing off status time only
 	index = 0; // stroing total numbers of off status during this event
@@ -713,7 +713,9 @@ EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMES
 
 	// Calculate the total interruption time during this event
 	total_off_time = 0;
+	interruptions_count = 0;
 	for (int i = 0; i < index; i++) {
+
 		int off_index, on_index;
 
 		// Deal with the corner case:
@@ -726,7 +728,11 @@ EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMES
 		else {
 			off_index = off_time_index[i];
 			on_index = off_index - 1;
-			total_off_time += my->status_change_time[off_index] - my->status_change_time[on_index];
+			diff_time = my->status_change_time[off_index] - my->status_change_time[on_index];
+			total_off_time += diff_time;
+			if (diff_time < 300) {
+				interruptions_count++; // One momentary opening and reclosing is counted as one event for calculating MAIFI later
+			}
 		}
 	}
 
@@ -745,7 +751,7 @@ EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMES
 		*momentaryFault = false;
 	}
 
-	return 1;
+	return interruptions_count;
 }
 
 int triplex_meter::kmldata(int (*stream)(const char*,...))

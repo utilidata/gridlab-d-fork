@@ -72,6 +72,8 @@ private:
 	double next_event_time_dbl;			/**< Time next event will occur - double representation */
 	metrics *metrics_obj;				/**< Link to metrics object we need to report "restoration" statii to */
 	OBJECT *metrics_obj_hdr;			/**< Link to metrics object - left generalized for locking functions */
+	FUNCTIONADDR count_outages_sec; 		/**< Pointer to power metric "count_from_status_change_secondary" function */
+	OBJECT *power_metrics_hdr;			/**< Link to power metrics object - left generalized for locking functions */
 	int curr_time_interrupted;			/**< Number of customers interrupted at current time - used to determine "differential" counts */
 	int curr_time_interrupted_sec;		/**< Number of customers secondarily interrupted at current time - used to determine "differential" counts */
 	bool diff_count_needed;				/**< Flag to indicate a differential count needs to be obtained */
@@ -82,7 +84,7 @@ private:
 	double glob_min_timestep;			/**< Variable for storing minimum timestep value - if it exists */
 	bool off_nominal_time;				/**< Flag to indicate a minimum timestep is present */
 	bool deltamode_inclusive;			/**< Boolean for deltamode calls - pulled from object flags, but put here for convenience */
-	
+	bool check_meshed_fault_enabled;	/**< Check whether the meshed fault method is used. If used, then true */
 	void do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type);	/**< Function to execute a status change on objects driven by event_gen */
 	void regen_events(TIMESTAMP t1_ts, double t1_dbl);				/**< Function to update time to next event on the system */
 

@@ -137,6 +137,9 @@ int eventgen::create(void)
 	//Delta-related items
 	deltamode_inclusive=false;		//Not in deltamode by default
 
+	// LPNORM related items
+	count_outages_sec = NULL;
+
 	return 1; /* return 1 on success, 0 on failure */
 }
 
@@ -158,6 +161,9 @@ int eventgen::init(OBJECT *parent)
 	//Get global_minimum_timestep value and set the appropriate flag
 	//Retrieve the global value, only does so as a text string for some reason
 	gl_global_getvar("minimum_timestep",temp_buff,sizeof(temp_buff));
+
+	// Get global value
+	check_meshed_fault_enabled = gl_global_find("powerflow::enable_mesh_fault_current");
 
 	//Initialize our parsing variables
 	index = 0;
@@ -263,6 +269,37 @@ int eventgen::init(OBJECT *parent)
 
 			//Map general header too, for locking
 			metrics_obj_hdr = hdr->parent;
+
+			// If meshed fault method is used, then neeed to link to power_metrics function
+			if (check_meshed_fault_enabled) {
+
+				power_metrics_hdr = metrics_obj->module_metrics_obj;
+
+				//Ensure our "power metrics" object is populated
+				if (power_metrics_hdr == NULL)
+				{
+					GL_THROW("Please specify a module metrics object for metrics:%s",hdr->name);
+					/*  TROUBLESHOOT
+					To operate properly, the metrics object must have the corresponding module's
+					metrics calculator linked.  If this object is missing, metrics has no idea
+					what to calculate and will not proceed.
+					*/
+				}
+
+				//It's not null, map up the init function and call it (this must exist, even if it does nothing)
+				count_outages_sec = (FUNCTIONADDR)(gl_get_function(power_metrics_hdr,"count_interruptions_secondary"));
+
+				//Make sure it was found
+				if (count_outages_sec == NULL)
+				{
+					GL_THROW("Unable to map count_interruptions_secondary init function on %s in %s",power_metrics_hdr->name,hdr->name);
+					/*  TROUBLESHOOT
+					While attempting to initialize the count_interruptions_secondary function in the "module of interest" metrics device,
+					a error was encountered.  Ensure this object fully supports reliability and try again.  If the bug
+					persists, please submit your code and a bug report to the trac website.
+					*/
+				}
+			}
 		}
 		else	//It isn't.  Become angry
 		{
@@ -1379,7 +1416,7 @@ void eventgen::do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type)
 	int returnval, index;
 	char impl_fault[257];
 	RELEVANTSTRUCT *temp_struct, *temp_struct_b;
-	void *Extra_Data;
+	void *Extra_Data, *returnCount;
 	double Extra_Data_No_Metrics;
 	int after_count, after_count_sec;
 
@@ -1599,34 +1636,43 @@ void eventgen::do_event(TIMESTAMP t1_ts, double t1_dbl, bool entry_type)
 				//Lock metrics event
 				wlock(metrics_obj_hdr);
 
-				//Check to see which mode we are in
-//				if (meshed_fault_checking_enabled == false)	//"Normal" mode
-//				{
-//					//Call the event updater - call relevant version
-//					if (*secondary_interruption_cnt == true)
-//					{
-//						metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected,UnreliableObjs[index].customers_affected_sec);
-//					}
-//					else	//no secondaries
-//					{
-//						metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected);
-//					}
-//				} //End "normal" fault operations mode
-//				else //Meshed checking -- handle differently
-//				{
-				//Call the event updater - call relevant version
-				if (*secondary_interruption_cnt == true)
+				// Check to see which mode we are in
+				if (check_meshed_fault_enabled == false)	//"Normal" mode
+				{
+					//Call the event updater - call relevant version
+					if (*secondary_interruption_cnt == true)
+					{
+						metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected,UnreliableObjs[index].customers_affected_sec);
+					}
+					else	//no secondaries
+					{
+						metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected);
+					}
+				} //End "normal" fault operations mode
+				else //Meshed checking -- handle differently
 				{
 					// Get current number of customers out of service
-					metrics_obj->count_from_status_change_secondary(&after_count,&after_count_sec, UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time);
-					metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,after_count,after_count_sec);
-				}
-				else	//no secondaries
-				{
-					metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,UnreliableObjs[index].customers_affected);
-				}
+					returnCount = ((void *(*)(OBJECT *, int *, int *, TIMESTAMP, TIMESTAMP))(*count_outages_sec))(power_metrics_hdr, &after_count,&after_count_sec, UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time);
 
-//				} //End "Meshed mode" checks
+					//Make sure it worked
+					if (returnCount == NULL)
+					{
+						GL_THROW("Unable to map count_outages_sec function on %s in %s",power_metrics_hdr->name,hdr->name);
+						//defined above
+					}
+
+					//Call the event updater - call relevant version
+					if (*secondary_interruption_cnt == true)
+					{
+						//Continue with the original method
+						metrics_obj->event_ended_sec(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,after_count,after_count_sec);
+					}
+					else	//no secondaries
+					{
+						metrics_obj->event_ended(hdr,UnreliableObjs[index].obj_of_int,UnreliableObjs[index].obj_made_int,UnreliableObjs[index].fail_time,UnreliableObjs[index].rest_time,fault_type.get_string(),impl_fault,after_count);
+					}
+
+				} //End "Meshed mode" checks
 
 				//All done, unlock it
 				wunlock(metrics_obj_hdr);
