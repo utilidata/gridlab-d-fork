@@ -24,8 +24,6 @@ typedef struct s_custarray {
 	OBJECT *CustomerObj;	//Object pointer to the customer
 	bool *CustInterrupted;	//Pointer to customer "interrupted" flag
 	bool *CustInterrupted_Secondary;	//Pointer to secondary customer "interrupted" flag - may or may not be used
-	double *status_change_time;	// Pointer to customer phase status change time
-	int *count_status_change;	// Pointer to customer phase status change time
 } CUSTARRAY;
 
 class metrics : public gld_object {
