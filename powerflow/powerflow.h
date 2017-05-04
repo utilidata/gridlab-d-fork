@@ -55,6 +55,8 @@ typedef struct s_ext_fxn {
 typedef struct FAULT_SOURCE {
 	int fault_number;		//Number this fault was assigned, to see which we are
 	int branch_reference;	//NR_branchdata reference for the initiator of the fault
+	unsigned int removed_phase;
+	int fault_type;
 	FAULT_SOURCE *next;	//Pointer to the next fault source object
 } FAULT_SOURCE;
 
@@ -133,10 +135,14 @@ void schedule_deltamode_start(TIMESTAMP tstart);	/* Anticipated time for a delta
 int delta_extra_function(unsigned int mode);
 
 //Fault handling items
-int add_fault_to_linked_list(int branch_reference);
+int add_fault_to_linked_list(int branch_reference, complex C[7][7],unsigned int removed_phase, int fault_type);
 int del_fault_from_linked_list(int fault_num);
 int search_linked_list_for_fault(int fault_num, unsigned char *phase_vals);
 int depopulate_fault_arrays(int fault_number, bool removal_type);
+bool search_isolated_fault_in_linked_list();
+void recalculate_non_isolated_fault_in_linked_list();
+FAULT_SOURCE *check_fault_type_change(FAULT_SOURCE *searching_source);
+void check_C_mat_change(int fault_type, complex C_mat[7][7]);
 
 /* used by many powerflow enums */
 #define UNKNOWN 0

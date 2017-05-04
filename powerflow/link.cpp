@@ -177,6 +177,8 @@ link_object::link_object(MODULE *mod) : powerflow_object(mod)
 				GL_THROW("Unable to publish link external current calculation function");
 			if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 				GL_THROW("Unable to publish link external power limit calculation function");
+			if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_faut_current)==NULL)
+				GL_THROW("Unable to publish link fault current recalculation function");
 	}
 }
 
@@ -379,6 +381,12 @@ int link_object::init(OBJECT *parent)
 		NR_branch_count++;		//Update global value of link count
 
 		gl_set_rank(obj,1);	//Links go to rank 1
+
+		// Set rank of the sectionalizer as 2, since it should be processed after the recloser
+		if (gl_object_isa(obj,"sectionalizer","powerflow"))
+		{
+			gl_set_rank(obj,2);	//sectionalizer links go to rank 2
+		}
 
 		//Link to the tn constants if we are a triplex (parent/child relationship gets lost)
 		//Also link other end of line to from, so we can steal its currents later
@@ -3460,6 +3468,19 @@ EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *o
 	//Assume success
 	return 1;
 }
+
+//Function to recaluclate fault current if feeder topology is changed
+EXPORT int recalculate_faut_current(OBJECT *obj, complex C[7][7],unsigned int removed_phase, int fault_type, bool event_fault)
+{
+	link_object *my = OBJECTDATA(obj,link_object);
+
+	//Perform the fault currenrt recalculation
+	//event_fault set as false since the fault current is calculated during non-event time
+	my->fault_current_calc(C, removed_phase, fault_type, false);
+
+	return 1;
+}
+
 
 /**
 * CurrentCalculation will perform the Newton-Raphson accumulation of
@@ -7021,47 +7042,47 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			if(*implemented_fault == 1){ //SLG-A -> Ifb=Ifc=Vax=Vxg=0
 				C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
 				type_fault = 1;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 2){ //SLG-B -> Ifa=Ifc=Vbx=Vxg=0
 				C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
 				type_fault = 2;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 3){ //SLG-C -> Ifa=Ifb=Vcx=Vxg=0
 				C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 				type_fault = 3;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 4){ //DLG-AB -> Ifc=Vax=Vbx=Vxg=0
 				C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
 				type_fault = 4;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 5){ //DLG-BC -> Ifa=Vbx=Vcx=Vxg=0
 				C_mat[3][0]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 				type_fault = 5;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 6){ //DLG-CA -> Ifb=Vax=Vcx=Vxg=0
 				C_mat[3][1]=C_mat[4][3]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 				type_fault = 6;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 7){ //LL-AB -> Ifa+Ifb=Ifc=Vax=Vbx=0
 				C_mat[3][0]=C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][4]=complex(1,0);
 				type_fault = 7;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 8){ //LL-BC -> Ifb+Ifc=Ifa=Vbx=Vcx=0
 				C_mat[3][1]=C_mat[3][2]=C_mat[4][0]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
 				type_fault = 8;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 9){ //LL-CA -> Ifa+Ifc=Ifb=Vax=Vcx=0
 				C_mat[3][0]=C_mat[3][2]=C_mat[4][1]=C_mat[5][3]=C_mat[6][5]=complex(1,0);
 				type_fault = 9;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 10){ //TLG-ABC -> Vax=Vbx=Vcx=Vxg=0
 				C_mat[3][3]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 				type_fault = 10;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			} else if(*implemented_fault == 32){ //TLL-ABC -> Ifa+Ifb+Ifc=Vax=Vbx=Vcx=0
 				C_mat[3][0]=C_mat[3][1]=C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
 				type_fault = 11;
-				fault_current_calc(C_mat, phase_remove, type_fault);
+				fault_current_calc(C_mat, phase_remove, type_fault, true);
 			}
 			// Calculate the fault current
 
@@ -7874,6 +7895,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 1;
+
+						//Flag which phase we've removed
+						phase_remove = 0x04;
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -7897,6 +7921,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 2;
+
+						//Flag which phase we've removed
+						phase_remove = 0x02;
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -7920,6 +7947,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 3;
+
+						//Flag which phase we've removed
+						phase_remove = 0x01;
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8018,6 +8048,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+
+				phase_remove = temp_phases;	//Flag phase removing
+
 			}//end <2 phases (only 1 presumably)
 			else if (numphase == 2)	//Only two phases present
 			{
@@ -8059,6 +8092,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					*/
 					break;
 				}//end switch
+
+				phase_remove = temp_phases;	//Flag phase removing
+
 			}//end 2 phases present
 			else if (numphase == 3)	//All phases present
 			{
@@ -8136,6 +8172,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+
+				phase_remove = temp_phases;	//Flag phase removing
+
 			}//end all three present
 			else	//Hmmm, how'd we get here?
 			{
@@ -8187,6 +8226,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				*/
 				break;
 			}//end phase cases
+
+			phase_remove = temp_phases;	//Flag phase removing
+
 		}//End TLG
 		else if ((fault_type[0] == 'T') && (fault_type[1] == 'L') && (fault_type[2] == 'L'))	//TLL - triple-line-line fault
 		{
@@ -8225,6 +8267,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				//Defined elsewhere
 				break;
 			}//end phase cases
+
+			phase_remove = temp_phases;	//Flag phase removing
+
 		}//End TLL
 		else if ((fault_type[0] == 'L') && (fault_type[1] == 'L'))	//Line-line fault
 		{
@@ -8296,6 +8341,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+
+				phase_remove = temp_phases;	//Flag phase removing
+
 			}//end <2 phases (only 1 presumably)
 			else if (numphase == 2)	//Only two phases present
 			{
@@ -8333,6 +8381,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//end 2 phases present
 			else if (numphase == 3)	//All phases present
 			{
@@ -8410,6 +8461,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//end all three present
 			else	//Hmmm, how'd we get here?
 			{
@@ -8467,6 +8521,8 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 11;
+						
+						phase_remove = 0x04;	//Flag phase being removed
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8487,6 +8543,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 12;
+						
+						//Flag phase being removed
+						phase_remove = 0x02;
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8507,6 +8566,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 13;
+						
+						//Flag phase being removed
+						phase_remove = 0x01;
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8595,6 +8657,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//end <2 phases (only 1 presumably)
 			else if (numphase == 2)	//Only two phases present
 			{
@@ -8632,6 +8697,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//end 2 phases present
 			else if (numphase == 3)	//All phases present
 			{
@@ -8709,6 +8777,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end switch
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//end all three present
 			else	//Hmmm, how'd we get here?
 			{
@@ -8753,6 +8824,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				//Defined above
 				break;
 			}//end phase cases
+			
+			phase_remove = temp_phases;	//Flag phase removing
+			
 		}//End OC3
 		else if ((fault_type[0] == 'S') && (fault_type[1] == 'W') && (fault_type[2] == '-'))	//Switch operations - event or user induced (no random - so handled slightly different)
 		{
@@ -8765,6 +8839,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 18;
+						
+						phase_remove = 0x04;	//Flag phase being removed
+						
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8785,6 +8862,8 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 19;
+						
+						phase_remove = 0x02;	//Flag phase being removed
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8805,6 +8884,8 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					{
 						//Flag the fault type
 						*implemented_fault = 20;
+						
+						phase_remove = 0x01;	//Flag phase being removed
 					}
 					else	//Already in a fault - just flag us as none and go on our way
 					{
@@ -8882,6 +8963,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						//Defined above
 						break;
 					}//end switch
+					
+					phase_remove = temp_phases;	//Flag phase removing
+					
 				}//end <2 phases (only 1 presumably)
 				else if (numphase == 2)	//Only two phases present
 				{
@@ -8917,6 +9001,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						//Defined above
 						break;
 					}//end switch
+					
+					phase_remove = temp_phases;	//Flag phase removing
+					
 				}//end 2 phases present
 				else if (numphase == 3)	//All phases present
 				{
@@ -8952,6 +9039,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 						//Defined above
 						break;
 					}//end switch
+					
+					phase_remove = temp_phases;	//Flag phase removing
+					
 				}//end all three present
 				else	//Hmmm, how'd we get here?
 				{
@@ -8996,6 +9086,9 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					//Defined above
 					break;
 				}//end phase cases
+				
+				phase_remove = temp_phases;	//Flag phase removing
+				
 			}//End three-phase occurence
 
 			//Flag as special case
@@ -9262,47 +9355,47 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				if(*implemented_fault == 1){ //SLG-A -> Ifb=Ifc=Vax=Vxg=0
 					C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
 					type_fault = 1;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 2){ //SLG-B -> Ifa=Ifc=Vbx=Vxg=0
 					C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
 					type_fault = 2;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 3){ //SLG-C -> Ifa=Ifb=Vcx=Vxg=0
 					C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 					type_fault = 3;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 4){ //DLG-AB -> Ifc=Vax=Vbx=Vxg=0
 					C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
 					type_fault = 4;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 5){ //DLG-BC -> Ifa=Vbx=Vcx=Vxg=0
 					C_mat[3][0]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 					type_fault = 5;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 6){ //DLG-CA -> Ifb=Vax=Vcx=Vxg=0
 					C_mat[3][1]=C_mat[4][3]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 					type_fault = 6;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 7){ //LL-AB -> Ifa+Ifb=Ifc=Vax=Vbx=0
 					C_mat[3][0]=C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][4]=complex(1,0);
 					type_fault = 7;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 8){ //LL-BC -> Ifb+Ifc=Ifa=Vbx=Vcx=0
 					C_mat[3][1]=C_mat[3][2]=C_mat[4][0]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
 					type_fault = 8;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 9){ //LL-CA -> Ifa+Ifc=Ifb=Vax=Vcx=0
 					C_mat[3][0]=C_mat[3][2]=C_mat[4][1]=C_mat[5][3]=C_mat[6][5]=complex(1,0);
 					type_fault = 9;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 10){ //TLG-ABC -> Vax=Vbx=Vcx=Vxg=0
 					C_mat[3][3]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
 					type_fault = 10;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				} else if(*implemented_fault == 32){ //TLL-ABC -> Ifa+Ifb+Ifc=Vax=Vbx=Vcx=0
 					C_mat[3][0]=C_mat[3][1]=C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
 					type_fault = 11;
-					fault_current_calc(C_mat, phase_remove, type_fault);
+					fault_current_calc(C_mat, phase_remove, type_fault, true);
 				}
 			}//End older, radial fault calculation method
 			// Calculate the fault current
@@ -11360,7 +11453,7 @@ int link_object::call_powerflow_calc(void)
 	return overallresult;
 }
 
-void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase, int fault_type)
+void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase, int fault_type, bool event_fault)
 {
 	int temp_branch_fc, temp_node, temp_connection_type;
 	int current_branch;
@@ -11401,125 +11494,129 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	//Contain the "new code" in a check - otherwise it breaks old autotests
 	if (meshed_fault_checking_enabled == true)	//Mesh mode
 	{
-		//Pre-empty the fault_pop_vect with zeros
-		fault_pop_vect[0] = 0;
-		fault_pop_vect[1] = 0;
-		fault_pop_vect[2] = 0;
-
-		//Determine if we need a fault number
-		if ((fault_type <= 10) || (fault_type == 32))
+		// Add only event fault into the fault_linked_list
+		if (event_fault == true)
 		{
-			//Obtain the fault number (and add it to the linked list)
-			fault_number = add_fault_to_linked_list(NR_branch_reference);
+			//Pre-empty the fault_pop_vect with zeros
+			fault_pop_vect[0] = 0;
+			fault_pop_vect[1] = 0;
+			fault_pop_vect[2] = 0;
 
-			//Make sure it worked properly
-			if (fault_number < 0)
+			//Determine if we need a fault number
+			if ((fault_type <= 10) || (fault_type == 32))
 			{
-				GL_THROW("Error initiating fault in linked list");
-				/*  TROUBLESHOOT
-				While attempting to add a fault condition to the powerflow faulted object linked list, an error
-				was encountered.  Please try again.  If the error persists, please submit your code and a bug report
-				via the ticketing system.
-				*/
-			}
-		}
-		else	//Other type of fault - we don't need a special number
-		{
-			fault_number = 0;
-		}
+				//Obtain the fault number (and add it to the linked list)
+				fault_number = add_fault_to_linked_list(NR_branch_reference, C, removed_phase, fault_type);
 
-		//Determine the fault type and set the "fault-present" vector appropriately (for use later)
-		switch (fault_type) {
-			case 1:	//SLG-A
-			{
-				fault_pop_vect[0] = fault_number;
-				break;
-			}
-			case 2:	//SLG-B
-			{
-				fault_pop_vect[1] = fault_number;
-				break;
-			}
-			case 3:	//SLG-C
-			{
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 4:	//DLG-AB
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[1] = fault_number;
-				break;
-			}
-			case 5:	//DLG-BC
-			{
-				fault_pop_vect[1] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 6:	//DLG-CA
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 7:	//LL-AB
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[1] = fault_number;
-				break;
-			}
-			case 8:	//LL-BC
-			{
-				fault_pop_vect[1] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 9:	//LL-CA
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 10:	//TLG
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[1] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			case 32:	//TLL
-			{
-				fault_pop_vect[0] = fault_number;
-				fault_pop_vect[1] = fault_number;
-				fault_pop_vect[2] = fault_number;
-				break;
-			}
-			default:	//All other cases - they don't actually cause a fault current
-			{
-				break;
-			}
-		}//End switch/case
-
-		//Populate the current branch, before we move on
-		//Populate the fault numbering item, as we move up
-		for (misc_index=0; misc_index<3; misc_index++)
-		{
-			if (fault_pop_vect[misc_index] != 0)
-			{
-				//Make sure we're not already populated
-				if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+				//Make sure it worked properly
+				if (fault_number < 0)
 				{
-					//Error - how did we fault an already faulted branch!?
-					GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
-					//Define below
-				}
-				else	//Just copy us in
-				{
-					NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+					GL_THROW("Error initiating fault in linked list");
+					/*  TROUBLESHOOT
+					While attempting to add a fault condition to the powerflow faulted object linked list, an error
+					was encountered.  Please try again.  If the error persists, please submit your code and a bug report
+					via the ticketing system.
+					*/
 				}
 			}
-			//Default else - it's zero, ignore it
+			else	//Other type of fault - we don't need a special number
+			{
+				fault_number = 0;
+			}
+
+			//Determine the fault type and set the "fault-present" vector appropriately (for use later)
+			switch (fault_type) {
+				case 1:	//SLG-A
+				{
+					fault_pop_vect[0] = fault_number;
+					break;
+				}
+				case 2:	//SLG-B
+				{
+					fault_pop_vect[1] = fault_number;
+					break;
+				}
+				case 3:	//SLG-C
+				{
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 4:	//DLG-AB
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[1] = fault_number;
+					break;
+				}
+				case 5:	//DLG-BC
+				{
+					fault_pop_vect[1] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 6:	//DLG-CA
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 7:	//LL-AB
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[1] = fault_number;
+					break;
+				}
+				case 8:	//LL-BC
+				{
+					fault_pop_vect[1] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 9:	//LL-CA
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 10:	//TLG
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[1] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				case 32:	//TLL
+				{
+					fault_pop_vect[0] = fault_number;
+					fault_pop_vect[1] = fault_number;
+					fault_pop_vect[2] = fault_number;
+					break;
+				}
+				default:	//All other cases - they don't actually cause a fault current
+				{
+					break;
+				}
+			}//End switch/case
+
+			//Populate the current branch, before we move on
+			//Populate the fault numbering item, as we move up
+			for (misc_index=0; misc_index<3; misc_index++)
+			{
+				if (fault_pop_vect[misc_index] != 0)
+				{
+					//Make sure we're not already populated
+					if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+					{
+						//Error - how did we fault an already faulted branch!?
+						GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+						//Define below
+					}
+					else	//Just copy us in
+					{
+						NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+					}
+				}
+				//Default else - it's zero, ignore it
+			}
 		}
 	}//End meshed topology mode enabled
 
@@ -11528,21 +11625,28 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	int temp_branch_fc_all[3];
 	int temp_branch_fc_curr[3];
 	bool isParallel_below = false;
+	bool Parallel_flag = false;
+	int phaseNums = 0; // indicates how many phases this temp_node has
 	temp_branch_fc_curr[0] = temp_branch_fc_curr[1] = temp_branch_fc_curr[2] = -2; // default value given is -2;
 	while (NR_busdata[temp_node].type != 2)
 	{
+
 		// In case of paralleled branches
 		// Obtain flag indicating if the downstream branch is paralleled
-		if (parallelFound > 1) {
+		if (Parallel_flag == true) {
 			isParallel_below = true;
 		}
 		else {
 			isParallel_below = false;
 			temp_branch_fc_all[0] = temp_branch_fc_all[1] = temp_branch_fc_all[2] = -2; // clear of value
 		}
+
+		Parallel_flag = false; // Initialize the flag for this node
 		parallelFound = 0; // clear the value
 
-		int phaseNums = 0; // indicates how many phases this temp_node has
+		// Check current node phase numbers
+		phaseNums = 0; // indicates how many phases this temp_node has
+
 		// Has phase A?
 		if ((NR_busdata[temp_node].phases & 0x04) == 0x04) {
 			phaseNums++;
@@ -11555,13 +11659,13 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 		if ((NR_busdata[temp_node].phases & 0x01) == 0x01) {
 			phaseNums++;
 		}
-		
+
 		//Pull from bus of current link
 		current_branch = temp_branch_fc;
 
 		//
 		for (int branchNum = 0; branchNum < 3; branchNum++) {
-			NR_busdata[temp_node].link_directConnect[branchNum] = -2; // Give a default value of -2 to the found upstream branch of he temp_node object
+			NR_busdata[temp_node].link_directConnect[branchNum] = -2; // Give a default value of -2 to the found upstream branch of the temp_node object
 		}
 		for (temp_table_loc=0; temp_table_loc<NR_busdata[temp_node].Link_Table_Size; temp_table_loc++)
 		{
@@ -11571,6 +11675,9 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 
 				//Go up to the next level
 				temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
+				if (NR_branchdata[temp_branch_fc].phases == 0) {
+					continue;
+				}
 				NR_branchdata[temp_branch_fc].isParallel  = false;
 				for (int branchNum = 0; branchNum < 3; branchNum++) {
 					NR_branchdata[temp_branch_fc].fault_link_below[branchNum] = -2; // Give a default value of -2 to the found branch fault_link_below
@@ -11590,28 +11697,32 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 
 				if (meshed_fault_checking_enabled == true)	//Only do this with the "new routine"
 				{
-					//Populate the fault numbering item, as we move up
-					for (misc_index=0; misc_index<3; misc_index++)
+					// Add fault_inplace only when it is during event_fault
+					if (event_fault == true)
 					{
-						if (fault_pop_vect[misc_index] != 0)
+						//Populate the fault numbering item, as we move up
+						for (misc_index=0; misc_index<3; misc_index++)
 						{
-							//Make sure we're not already populated
-							if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+							if (fault_pop_vect[misc_index] != 0)
 							{
-								//Error - how did we fault an already faulted branch!?
-								GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
-								/*  TROUBLESHOOT
-								While attempting to populate the flag for a fault condition, and existing fault was found.  This should not
-								happen.  Please check your code and try again.  If the error persists, or if you are using a base copy of
-								GridLAB-D, please submit your files and a bug report via the ticketing system.
-								*/
+								//Make sure we're not already populated
+								if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+								{
+									//Error - how did we fault an already faulted branch!?
+									GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+									/*  TROUBLESHOOT
+									While attempting to populate the flag for a fault condition, and existing fault was found.  This should not
+									happen.  Please check your code and try again.  If the error persists, or if you are using a base copy of
+									GridLAB-D, please submit your files and a bug report via the ticketing system.
+									*/
+								}
+								else	//Just copy us in
+								{
+									NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+								}
 							}
-							else	//Just copy us in
-							{
-								NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
-							}
+							//Default else - it's zero, ignore it
 						}
-						//Default else - it's zero, ignore it
 					}
 				}//End meshed topology routine
 
@@ -11625,6 +11736,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 						NR_branchdata[temp_branch_fc_curr[branchNum]].isParallel = true;
 						temp_branch_fc_curr[branchNum] = -2;
 					}
+					Parallel_flag = true;
 					break;
 				}
 				parallelFound++;
@@ -12238,6 +12350,8 @@ void link_object::getDwLinkCurr_parallel (int temp_branch_fc)
 
 void link_object::getDwLinkCurr (int temp_branch_fc)
 {
+	unsigned char original_phase = NR_branchdata[temp_branch_fc].origphases;
+
 	// Check if this branch is a paralleled branch
 	if (NR_branchdata[temp_branch_fc].isParallel == true) {
 		if (NR_branchdata[temp_branch_fc].phases == 0x04) {
@@ -12264,6 +12378,12 @@ void link_object::getDwLinkCurr (int temp_branch_fc)
 			else {
 				getDwLinkCurr_parallel(temp_branch_fc);
 			}
+		}
+		// Check if this paralleled single-phase branch has been removed
+		else if (NR_branchdata[temp_branch_fc].phases == 0x00 && (original_phase == 0x04 || original_phase == 0x02 || original_phase == 0x01)) {
+			NR_branchdata[temp_branch_fc].If_to[0] = complex(0.0,0.0);
+			NR_branchdata[temp_branch_fc].If_to[1] = complex(0.0,0.0);
+			NR_branchdata[temp_branch_fc].If_to[2] = complex(0.0,0.0);
 		}
 		else {
 			GL_THROW("Cannot find the phase of the paralleled branch, which should be a single-phase branch");

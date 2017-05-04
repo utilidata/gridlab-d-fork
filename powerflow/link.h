@@ -11,6 +11,7 @@ EXPORT SIMULATIONMODE interupdate_link(OBJECT *obj, unsigned int64 delta_time, u
 EXPORT int updatepowercalc_link(OBJECT *obj);
 EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *overloaded);
 EXPORT int updatecurrentcalc_link(OBJECT *obj, bool calc_mode);
+EXPORT int recalculate_faut_current(OBJECT *obj, complex C[7][7],unsigned int removed_phase, int fault_type, bool event_fault);
 
 #define impedance(X) (B_mat[X][X])
 
@@ -138,7 +139,7 @@ public:
 	void lmatrix_vmult(complex *matrix_in, complex *vector_in, complex *vector_out, int matsize);
 
 	// Fault current calculation functions
-	void fault_current_calc(complex C[7][7], unsigned int removed_phase, int fault_type); // function traces up from fault to swing bus summing up the link objects' impedances
+	void fault_current_calc(complex C[7][7], unsigned int removed_phase, int fault_type, bool event_fault); // function traces up from fault to swing bus summing up the link objects' impedances
 											  // then calculates the fault current then passes that value back down to the faulted link objects.
 	void getDwLinkCurr_parallel (int temp_branch_fc); // function obtains the current from downstream paralleled link
 	void getDwLinkCurr (int temp_branch_fc); // function obtains the to node current for the link with index temp_branch_fc

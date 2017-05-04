@@ -85,6 +85,8 @@ fuse::fuse(MODULE *mod) : link_object(mod)
 			GL_THROW("Unable to publish fuse external current calculation function");
 		if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 			GL_THROW("Unable to publish fuse external power limit calculation function");
+		if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_faut_current)==NULL)
+			GL_THROW("Unable to publish fuse fault current recalculation function");
     }
 }
 

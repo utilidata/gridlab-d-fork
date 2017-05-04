@@ -1021,6 +1021,7 @@ void fault_check::support_search_links_mesh(void)
 	unsigned int indexval, index;
 	int device_index;
 	unsigned char avail_phases, result_phases, temp_phases;
+	bool fault_isolated;
 
 	//Loop through all of the nodes and update them with the valid phases we found
 	for (indexval=0; indexval<NR_bus_count; indexval++)
@@ -1032,9 +1033,21 @@ void fault_check::support_search_links_mesh(void)
 		NR_busdata[indexval].phases = result_phases;
 	}//End bus progression
 
+//	// Loop through fault_linked_list, and check if the faulted section is to be isolated by this reliability check
+//	fault_isolated = false; // initialization
+//	fault_isolated = search_isolated_fault_in_linked_list();
+
 	//Now loop the links and do "effectively" the same
 	for (indexval=0; indexval<NR_branch_count; indexval++)
 	{
+		//Zero out fault current If_from and If_to for each branch in case of faulted topology changed (will recalculate fault current in the end of this function here)
+		NR_branchdata[indexval].If_from[0] = complex(0.0,0.0);
+		NR_branchdata[indexval].If_from[1] = complex(0.0,0.0);
+		NR_branchdata[indexval].If_from[2] = complex(0.0,0.0);
+		NR_branchdata[indexval].If_to[0] = complex(0.0,0.0);
+		NR_branchdata[indexval].If_to[1] = complex(0.0,0.0);
+		NR_branchdata[indexval].If_to[2] = complex(0.0,0.0);
+
 		//Find out what phases we could support
 		avail_phases = ((NR_busdata[NR_branchdata[indexval].from].phases & NR_busdata[NR_branchdata[indexval].to].phases) & 0x07);
 		result_phases = (NR_branchdata[indexval].origphases & (0xF8 | avail_phases));
@@ -1046,6 +1059,7 @@ void fault_check::support_search_links_mesh(void)
 		{
 			//Not a switchable device, so just put our phases in
 			NR_branchdata[indexval].phases = result_phases;
+
 		}
 		else if (NR_branchdata[indexval].lnk_type != 3)	//Not a fuse (so a switch device)
 		{
@@ -1078,8 +1092,11 @@ void fault_check::support_search_links_mesh(void)
 				NR_branchdata[indexval].phases = NR_branchdata[indexval].origphases & 0xF8;
 			}
 		}
-
 	}//End Link progression
+
+	// Recalculate the fault by calling exported function, since feeder topology may be changed after reliability check
+	recalculate_non_isolated_fault_in_linked_list();
+
 }
 
 //Code to check the special link devices and modify as needed

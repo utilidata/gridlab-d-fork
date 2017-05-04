@@ -83,6 +83,8 @@ transformer::transformer(MODULE *mod) : link_object(mod)
 				GL_THROW("Unable to publish transformer external current calculation function");
 			if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 				GL_THROW("Unable to publish transformer external power limit calculation function");
+			if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_faut_current)==NULL)
+				GL_THROW("Unable to publish transformer fault current recalculation function");
     }
 }
 

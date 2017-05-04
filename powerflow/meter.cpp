@@ -884,6 +884,10 @@ EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMES
 				}
 			}
 		}
+		// Consider the case in which the last changing state is turning ON
+		if (my->status_on[my->count_status_change-1] == true) {
+			total_on_time += event_end_time - my->status_change_time[my->count_status_change-1];
+		}
 	}
 
 	total_off_time = event_end_time - event_start_time - total_on_time;

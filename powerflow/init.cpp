@@ -501,7 +501,7 @@ int delta_extra_function(unsigned int mode)
 // Fault linked-list handling items - put here so anyone can access them
 // Adding function -- adds a fault to the list - returns the fault number
 // branch_reference is the NR_branchdata entry for the object that called this
-int add_fault_to_linked_list(int branch_reference)
+int add_fault_to_linked_list(int branch_reference, complex C[7][7],unsigned int removed_phase, int fault_type)
 {
 	FAULT_SOURCE *searching_source;
 	FAULT_SOURCE *temp_source;
@@ -522,6 +522,31 @@ int add_fault_to_linked_list(int branch_reference)
 		return -1;
 	}
 
+//	//Initial check -- see if the C_mat already has something -- if so, free it first
+//	//Not sure any of these ever get reused, but this will make sure this potential
+//	//memory hole is closed
+//	if (temp_source->C_mat != NULL)
+//	{
+////		 gl_free(temp_source->C_mat);
+//
+//		//Null it
+//		temp_source->C_mat = NULL;
+//	}
+
+//	//Allocate the C_mat array
+//	temp_source->C_mat = (complex **)gl_malloc(7*sizeof(complex *));
+//
+//	//Make sure it worked
+//	if (temp_source->C_mat == NULL)
+//	{
+//		GL_THROW("init: failed to allocate memory for C_mat of the fault source in function add_fault_to_linked_list!");
+//		/*  TROUBLESHOOT
+//		While attempting to allocate memory for storing the C_mat values,
+//		an error occurred.  Please try again, assuming proper inputs.  If the error persists,
+//		please submit your code and a bug report via the ticketing system.
+//		*/
+//	}
+
 	//Lock, since multiple devices may call
 	LOCK_OBJECT(NR_swing_bus);
 
@@ -534,6 +559,23 @@ int add_fault_to_linked_list(int branch_reference)
 	//Populate us
 	temp_source->branch_reference = branch_reference;
 	temp_source->fault_number = fault_value;
+//	for (int i = 0; i < 7; i++) {
+//		//Allocate this entry
+//		temp_source->C_mat[i] = (complex *)gl_malloc(7*sizeof(complex));
+//
+//		//Check it
+//		if (temp_source->C_mat[i] == NULL)
+//		{
+//			GL_THROW("init: failed to allocate memory for C_mat of the fault source in function add_fault_to_linked_list!");
+//			//Defined above
+//		}
+//
+//		for (int j = 0; j < 7; j++) {
+//			temp_source->C_mat[i][j] = C[i][j];
+//		}
+//	}
+	temp_source->removed_phase = removed_phase;
+	temp_source->fault_type = fault_type;
 	temp_source->next = NULL;
 
 
@@ -727,6 +769,448 @@ int search_linked_list_for_fault(int fault_num, unsigned char *phase_vals)
 
 		return 0;
 	}
+}
+
+//Search function - see if the event fault being isolated due to topology check in fault_check.cpp
+//Return true if the fault if found to be isoltaed, with phase changed
+bool search_isolated_fault_in_linked_list()
+{
+	int branch_number;
+	bool fault_isolated = false;
+	FAULT_SOURCE *searching_source;
+
+	//Lock the swing for the search - no updating while we're looking!
+	LOCK_OBJECT(NR_swing_bus);
+
+	//Make sure the list exists
+	if (fault_linked_list == NULL)
+	{
+		gl_verbose("Fault list is empty - fault not found when called inside fault_check.cpp for isolated fault check");
+		/*  TROUBLESHOOT
+		While attempting to search for an isolated fault on a system, an empty list
+		was encountered, indicating no faults are present.
+		 */
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return fault_isolated;
+	}
+	else
+	{
+		//Set the initial value
+		searching_source = fault_linked_list;
+
+		//Progress through
+		while (searching_source != NULL)
+		{
+			//Set the branch number
+			branch_number = searching_source->branch_reference;
+
+			//Check the faulted branch's phase with its original phases
+			//If not the same, means that the faulted section has been isolated during reliability check
+			if (NR_branchdata[branch_number].phases != NR_branchdata[branch_number].origphases) {
+
+				fault_isolated = true;
+
+				//Unlock swing before exiting
+				UNLOCK_OBJECT(NR_swing_bus);
+
+				//Return the number
+				return fault_isolated;
+			}
+
+			//Update pointer
+			searching_source = searching_source->next;
+
+		}//End while
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		// Return false since no isolated fault being found
+		return fault_isolated;
+	}
+}
+
+//Loop through each fault recorded in the fault_linked_list, check if the current fault section is isolated or not
+//If not isolated (phase changed), then re-calculate the fault current for each feeder branch (which has fault current based on the fault location and types)
+//If isolated (phase the same), then do not calculate fault current, which has been set to zero in fault_check during reliabilty checks
+void recalculate_non_isolated_fault_in_linked_list()
+{
+	int branch_number;
+	bool fault_isolated = false;
+	FAULT_SOURCE *searching_source;
+	FAULT_SOURCE *changed_fault_source;
+	FUNCTIONADDR funadd = NULL;
+	void *return_val = NULL;
+	complex C_mat[7][7];
+
+	//Lock the swing for the search - no updating while we're looking!
+	LOCK_OBJECT(NR_swing_bus);
+
+	//Make sure the list exists
+	if (fault_linked_list == NULL)
+	{
+		gl_verbose("Fault list is empty - fault not found when called inside fault_check.cpp for isolated fault check and fault current recalculation");
+		/*  TROUBLESHOOT
+		While attempting to search for an isolated fault on a system, an empty list
+		was encountered, indicating no faults are present.
+		 */
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		return;
+	}
+	else
+	{
+		//Set the initial value
+		searching_source = fault_linked_list;
+
+		//Progress through
+		while (searching_source != NULL)
+		{
+			//Set the branch number
+			branch_number = searching_source->branch_reference;
+
+			//Check the faulted branch's phase with its original phases
+			//If not the same, means that the faulted section has been isolated during reliability check
+			//If all the phases remained the same, then not isolated, have to re-calculate fault current
+			//Or, some phases get isolated (become 0), some phases still there (phase & 0x07 != 0x00)
+			if ((NR_branchdata[branch_number].phases & searching_source->removed_phase) != 0x00) {
+
+				// set defaults for C_mat
+				//This is for the radial fault method and will likely disappear when not needed
+				for(int n=0; n<7; n++){
+					for(int m=0; m<7; m++) {
+						C_mat[n][m]=complex(0,0);
+					}
+				}
+
+				// Check if part of phases being removed - if so, need to change fault type correspondingly
+				changed_fault_source = check_fault_type_change(searching_source);
+
+				// Update C_mat based on updated fault type
+				check_C_mat_change(changed_fault_source->fault_type, C_mat);
+
+				if (changed_fault_source != NULL) {
+
+					// Recaluclate fault current
+					funadd = (FUNCTIONADDR)(gl_get_function(NR_branchdata[branch_number].obj,"fault_current_recalculation"));
+
+					//Make sure it was found
+					if (funadd == NULL)
+					{
+						GL_THROW("Unable to recalculate fault that occured on link %s",NR_branchdata[branch_number].obj->name);
+						/*  TROUBLESHOOT
+						While attempting to recalcualte a fault, the init.cpp failed to find the fault_current_recalculation
+						function on the object of interest.  Ensure this object type supports faulting and try again.  If the problem
+						persists, please submit a bug report and your code to the trac website.
+						*/
+					}
+
+					return_val = ((void *(*)(OBJECT *, complex[7][7], unsigned int, int, bool))(*funadd))(NR_branchdata[branch_number].obj, C_mat, changed_fault_source->removed_phase, changed_fault_source->fault_type, false);
+
+					//Make sure it worked
+					if (return_val==NULL)
+					{
+						GL_THROW("Unable to map fault_current_recalculation function on %s in init.cpp",NR_branchdata[branch_number].obj->name);
+						//defined above
+					}
+
+					//Unlock swing before exiting
+					UNLOCK_OBJECT(NR_swing_bus);
+
+					//Return
+					return;
+				}
+			}
+
+			//Update pointer
+			searching_source = searching_source->next;
+
+		}//End while
+
+		//Unlock swing before exiting
+		UNLOCK_OBJECT(NR_swing_bus);
+
+		// Return false since no isolated fault being found
+		return;
+	}
+}
+
+FAULT_SOURCE *check_fault_type_change(FAULT_SOURCE *searching_source)
+{
+	int branch_number;
+	int fault_type;
+	FAULT_SOURCE *changed_fault_source;
+	unsigned int phase_remain;
+	complex C_mat[7][7];
+
+	// set defaults for C_mat
+	//This is for the radial fault method and will likely disappear when not needed
+	for(int n=0; n<7; n++){
+		for(int m=0; m<7; m++) {
+			C_mat[n][m]=complex(0,0);
+		}
+	}
+
+//	memcpy(changed_fault_source,searching_source,sizeof(FAULT_SOURCE));
+//	changed_fault_source->next = NULL;
+
+//	//Initial check -- see if the C_mat already has something -- if so, free it first
+//	//Not sure any of these ever get reused, but this will make sure this potential
+//	//memory hole is closed
+//	if (changed_fault_source->C_mat != NULL)
+//	{
+//		// gl_free(changed_fault_source->C_mat);
+//
+//		//Null it
+//		changed_fault_source->C_mat = NULL;
+//	}
+
+	//Create a new fault_sourcing object
+	changed_fault_source = (FAULT_SOURCE *)gl_malloc(sizeof(FAULT_SOURCE));
+
+//	//Make sure it worked
+//	if (changed_fault_source == NULL)
+//	{
+//		gl_error("Failed to allocate linked-list entry for fault handling");
+//		/*  TROUBLESHOOT
+//		While attempting to add a fault into the fault-tracking linked-list, an error was
+//		encountered.  Please try again.  If the error persists, please submit your code, model,
+//		and a description via the ticketing system.
+//		*/
+//		return changed_fault_source;
+//	}
+//
+//	//Allocate the C_mat array
+//	changed_fault_source->C_mat = (complex**)gl_malloc(7*sizeof(complex*));
+//
+//	//Make sure it worked
+//	if (changed_fault_source->C_mat == NULL)
+//	{
+//		gl_error("init: failed to allocate memory for C_mat of the fault source in function check_fault_type_change!");
+//		/*  TROUBLESHOOT
+//		While attempting to allocate memory for storing the C_mat values,
+//		an error occurred.  Please try again, assuming proper inputs.  If the error persists,
+//		please submit your code and a bug report via the ticketing system.
+//		*/
+//		return NULL;
+//	}
+//
+//	// Allocate C_mat based on fault list values
+//	for (int i = 0; i < 7; i++) {
+//		//Allocate this entry
+//		changed_fault_source->C_mat[i] = (complex *)gl_malloc(7*sizeof(complex));
+//
+//		//Check it
+//		if (changed_fault_source->C_mat[i] == NULL)
+//		{
+//			GL_THROW("init: failed to allocate memory for C_mat of the fault source in function add_fault_to_linked_list!");
+//			//Defined above
+//		}
+//
+//		for (int j = 0; j < 7; j++) {
+//			changed_fault_source->C_mat[i][j] = searching_source->C_mat[i][j];
+//		}
+//	}
+
+	// Assign initial value of changed_fault_source the same as the current fault source
+	changed_fault_source->next = NULL;
+	changed_fault_source->branch_reference = searching_source->branch_reference;
+	changed_fault_source->fault_number = searching_source->fault_number;
+	changed_fault_source->fault_type = searching_source->fault_type;
+	changed_fault_source->removed_phase = searching_source->removed_phase;
+
+	//Set the branch number
+	branch_number = searching_source->branch_reference;
+
+	// Obtain remained phases
+	phase_remain = NR_branchdata[branch_number].phases & searching_source->removed_phase;
+
+	//Check the faulted branch's phase with its original phases
+	if ((NR_branchdata[branch_number].phases & searching_source->removed_phase) != 0x00) {
+		// At least some of the faulted branch phases still there. Check further.
+
+		// If none of the faulted phases are removed, apply the original fault
+		if (phase_remain == searching_source->removed_phase) {
+			return changed_fault_source;
+		}
+
+		// Obtain fault type of this fault
+		fault_type = searching_source->fault_type;
+
+		// Check if it was single-phase fault
+		if (fault_type == 1 || fault_type == 2 || fault_type == 3 ) {
+			// Do nothing
+			return NULL;
+		}
+		// Check if it was DLG-AB fault
+		else if ((fault_type == 4) && (phase_remain != searching_source->removed_phase)) {
+			// If only phase A remained, change to SLG-A fault
+			if (phase_remain == 0x04) {
+				C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 1;
+				changed_fault_source->removed_phase = 0x04;
+			}
+			// If only phase B remained, change to SLG-B fault
+			else if (phase_remain == 0x02) {
+				C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 2;
+				changed_fault_source->removed_phase = 0x02;
+			}
+		}
+		// Check if it was DLG-BC fault
+		else if ((fault_type == 5) && (phase_remain != searching_source->removed_phase)) {
+			// If only phase C remained, change to SLG-C fault
+			if (phase_remain == 0x01) {
+				C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 3;
+				changed_fault_source->removed_phase = 0x01;
+			}
+			// If only phase B remained, change to SLG-B fault
+			else if (phase_remain == 0x02) {
+				C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 2;
+				changed_fault_source->removed_phase = 0x02;
+			}
+		}
+		// Check if it was DLG-AC fault
+		else if ((fault_type == 6) && (phase_remain != searching_source->removed_phase)) {
+			// If only phase A remained, change to SLG-A fault
+			if (phase_remain == 0x04) {
+				C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 1;
+				changed_fault_source->removed_phase = 0x04;
+			}
+			// If only phase C remained, change to SLG-C fault
+			if (phase_remain == 0x01) {
+				C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 3;
+				changed_fault_source->removed_phase = 0x01;
+			}
+		}
+		// Check if it was LL-AB fault
+		else if ((fault_type == 7 || fault_type == 8 || fault_type == 9) && (phase_remain != (searching_source->removed_phase))) {
+			// If only one phase remained, this open phase fault no longer exists
+			return NULL;
+		}
+		// Check if it was TLG-ABC fault
+		else if ((fault_type == 10) && (phase_remain != searching_source->removed_phase)) {
+			// If only phase A remained, change to SLG-A fault
+			if (phase_remain == 0x04) {
+				C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 1;
+				changed_fault_source->removed_phase = 0x04;
+			}
+			// If only phase B remained, change to SLG-B fault
+			else if (phase_remain == 0x02) {
+				C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 2;
+				changed_fault_source->removed_phase = 0x02;
+			}
+			// If only phase C remained, change to SLG-C fault
+			if (phase_remain == 0x01) {
+				C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 3;
+				changed_fault_source->removed_phase = 0x01;
+			}
+			// If only phase AB remained, change to DLG-AB fault
+			if (phase_remain == 0x06) {
+				C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 4;
+				changed_fault_source->removed_phase = 0x06;
+			}
+			// If only phase BC remained, change to DLG-BC fault
+			if (phase_remain == 0x03) {
+				C_mat[3][0]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 5;
+				changed_fault_source->removed_phase = 0x03;
+			}
+			// If only phase AC remained, change to DLG-AC fault
+			if (phase_remain == 0x05) {
+				C_mat[3][1]=C_mat[4][3]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+				changed_fault_source->fault_type = 6;
+				changed_fault_source->removed_phase = 0x05;
+			}
+		}
+		// Check if it was TLL-ABC fault
+		else if ((fault_type == 32) && phase_remain != searching_source->removed_phase ) {
+			// If only one phase remained
+			if (phase_remain == 0x04 || phase_remain == 0x02 || phase_remain == 0x01) {
+				// If only one phase remained, this open phase fault no longer exists
+				return NULL;
+			}
+			// If only phase AB remained, change to LL-AB fault
+			if (phase_remain == 0x06) {
+				C_mat[3][0]=C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][4]=complex(1,0);
+				changed_fault_source->fault_type = 7;
+				changed_fault_source->removed_phase = 0x06;
+			}
+			// If only phase BC remained, change to LL-BC fault
+			if (phase_remain == 0x03) {
+				C_mat[3][1]=C_mat[3][2]=C_mat[4][0]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
+				changed_fault_source->fault_type = 8;
+				changed_fault_source->removed_phase = 0x03;
+			}
+			// If only phase AC remained, change to LL-AC fault
+			if (phase_remain == 0x05) {
+				C_mat[3][0]=C_mat[3][2]=C_mat[4][1]=C_mat[5][3]=C_mat[6][5]=complex(1,0);
+				changed_fault_source->fault_type = 9;
+				changed_fault_source->removed_phase = 0x05;
+			}
+		}
+	}
+
+//	for(int n=0; n<7; n++){
+//		for(int m=0; m<7; m++) {
+//			changed_fault_source->C_mat[n][m] = C_mat[n][m];
+//		}
+//	}
+
+	return changed_fault_source;
+}
+
+void check_C_mat_change(int fault_type, complex C_mat[7][7])
+{
+
+	if (fault_type == 1) {
+		C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 2) {
+		C_mat[3][0]=C_mat[4][2]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 3) {
+		C_mat[3][0]=C_mat[4][1]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 4) {
+		C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 5) {
+		C_mat[3][0]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 6) {
+		C_mat[3][1]=C_mat[4][3]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 7) {
+		C_mat[3][0]=C_mat[3][1]=C_mat[4][2]=C_mat[5][3]=C_mat[6][4]=complex(1,0);
+	}
+	else if (fault_type == 8) {
+		C_mat[3][1]=C_mat[3][2]=C_mat[4][0]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
+	}
+	else if (fault_type == 9) {
+		C_mat[3][0]=C_mat[3][2]=C_mat[4][1]=C_mat[5][3]=C_mat[6][5]=complex(1,0);
+	}
+	else if (fault_type == 10) {
+		C_mat[3][3]=C_mat[4][4]=C_mat[5][5]=C_mat[6][6]=complex(1,0);
+	}
+	else if (fault_type == 11) {
+		C_mat[3][0]=C_mat[3][1]=C_mat[3][2]=C_mat[4][3]=C_mat[5][4]=C_mat[6][5]=complex(1,0);
+	}
+
+	return;
 }
 
 //Function to be called to see if a fault location/faulted object was

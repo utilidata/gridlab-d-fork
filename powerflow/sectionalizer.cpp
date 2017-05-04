@@ -58,6 +58,8 @@ sectionalizer::sectionalizer(MODULE *mod) : switch_object(mod)
 			GL_THROW("Unable to publish sectionalizer external current calculation function");
 		if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 			GL_THROW("Unable to publish sectionalizer external power limit calculation function");
+		if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_faut_current)==NULL)
+			GL_THROW("Unable to publish sectionalizer fault current recalculation function");
     }
 }
 
@@ -181,18 +183,18 @@ TIMESTAMP sectionalizer::sync(TIMESTAMP t0)
 		}
 
 		// If the sectionalizer has seen a fault interruption by upstream devices, count it
-		if (flag_interrupted == false && (current_in[0].Mag()<= Ilowerlimit && current_in[1].Mag() <= Ilowerlimit && current_in[2].Mag() <= Ilowerlimit) && t_start > 0) {
+		if (flag_interrupted == false && (If_in[0].Mag()<= Ilowerlimit && If_in[1].Mag() <= Ilowerlimit && If_in[2].Mag() <= Ilowerlimit) && t_start > 0) {
 			flag_interrupted = true;
 			count++;
 		}
 
 		// If fault is seen again by the sectionalizer, reset the flag_interrupted
-		if (flag_interrupted == true && (current_in[0].Mag()>Ilowerlimit || current_in[1].Mag()>Ilowerlimit || current_in[2].Mag()>Ilowerlimit) && t_start > 0) {
+		if (flag_interrupted == true && (If_in[0].Mag()>Ilowerlimit || If_in[1].Mag()>Ilowerlimit || If_in[2].Mag()>Ilowerlimit) && t_start > 0) {
 			flag_interrupted = false;
 		}
 
 		// If the fault is interrupted by upstream devices, and count has reached the max value, open the sectionalizer
-		if (count == count_max && (current_in[0].Mag() == 0 && current_in[1].Mag() == 0 && current_in[2].Mag() == 0) && (t0 < t_start + t_reset)) {
+		if (count == count_max && (If_in[0].Mag() == 0 && If_in[1].Mag() == 0 && If_in[2].Mag() == 0) && (t0 < t_start + t_reset)) {
 
 			// Open the sectionalizer
 			switch_object::sync(t0);
