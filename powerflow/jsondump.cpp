@@ -94,44 +94,18 @@ int jsondump::dump(TIMESTAMP t)
 	CLASS *obj_class;
 	char timestr[64];
 	PROPERTY *xfmrconfig;
-
-	// test jsoncpp library in GLD codes:
-    ifstream ifs("testLine.json");
-    Json::Reader reader;
-    Json::Value objTest;
-    reader.parse(ifs, objTest); // reader can also read strings
-	//read file
-    const Json::Value& characters = objTest["lines"]; // array of characters
-    for (int i = 0; i < characters.size(); i++){
-        cout << "    id: " << characters[i]["id"].asString();
-        cout << " node1_id: " << characters[i]["node1_id"].asString();
-        cout << endl;
-    }
-    //
-    ofstream myfile;
-    myfile.open ("testJsoncppWriter.txt");
-    for (int i = 0; i < characters.size(); i++){
-    	myfile << "    id: " << characters[i]["id"].asString() << endl;
-    }
-    myfile.close();
-
-    // write whole original json file
-//   ofstream myfile;
-//   myfile.open ("testJsoncppWriter.txt");
-//   myfile << "    id: ";
-//   Json::StyledWriter writer;
-//   myfile << writer.write(objTest) << std::endl;
-//   myfile.close();
-
-//	    // write file
-//	    FILE *f = NULL;
-//	    f = fopen("testJsoncppWriter.json","w");
-//		for (int i = 0; i < characters.size(); i++){
-//			fprintf(f,"\"id\": \"%s\"\n", characters[i]["id"].asString().c_str());
-//		}
-//		fclose(f);
-//		//
-
+	int phaseCount;
+	// metrics JSON value
+	Json::Value metrics_lines;	// Output dictionary for line and line configuration metrics
+	Json::Value line_object;
+	Json::Value line_configuration_object;
+	Json::Value jsonArray;
+	Json::Value jsonArray1; // for storing rmatrix and xmatrix
+	Json::Value jsonArray2; // for storing rmatrix and xmatrix
+	// Start write to file
+	Json::StyledWriter writer;
+	// Open file for writing
+	ofstream out_file;
 
 	//find the link objects
 	if(group[0] == '\0'){
@@ -157,20 +131,9 @@ int jsondump::dump(TIMESTAMP t)
 		*/
 	}
 
-	//open file for writing
-	fn = fopen(filename,"w");
-	if(fn == NULL){
-		gl_error("Unable to open %s for writing.",(char *)(&filename));
-		return 0;
-	}
-
 	//write style sheet info
-	fprintf(fn, "{\n");
-	fprintf(fn,"\t\"$schema\": \"http://json-schema.org/draft-04/schema#\",\n");
-	fprintf(fn,"\t\"type\": \"object\",\n");
-	fprintf(fn,"\t\"title\": \"Resilient Design Tool (RDT) JSON schema\",\n");
-	fprintf(fn,"\t\"description\": \"These schema describes the fields for the JSON schema used by the RDT Tool\",\n");
-	fprintf(fn,"\t\"properties\": {\n");
+	metrics_lines["$schema"] = "http://json-schema.org/draft-04/schema#";
+	metrics_lines["description"] = "These file describes the line and line configuration data";
 
 	// Define b_mat_pu and b_mat_tp_pu to store per unit bmatrix values
 	// Overhead and underground line configurations
@@ -201,9 +164,6 @@ int jsondump::dump(TIMESTAMP t)
 
 
 	//write the overhead_lines
-	if(ohlines != NULL && uglines != NULL && tplines != NULL) {
-		fprintf(fn,"\t\t\"lines\": [\n");
-	}
 	index = 0;
 	if(ohlines != NULL){
 		pOhLine = (line **)gl_malloc(ohlines->hit_count*sizeof(line*));
@@ -221,22 +181,22 @@ int jsondump::dump(TIMESTAMP t)
 				return 0;
 			}
 
-			//write the overhead_line
-			fprintf(fn,"\t\t\t{\n");
-			//write the name (not id I think)
-			fprintf(fn,"\t\t\t\t\"id\": \"%s\"\n", obj->name);
+			// Write the overhead_line metrics
+			// Write the name (not id)
+			line_object["id"] = obj->name;
 			//write from node name
-			fprintf(fn,"\t\t\t\t\"node1_id\": \"%s\"\n", pOhLine[index]->from->name);
+			line_object["node1_id"] = pOhLine[index]->from->name;
 			//write to node name
-			fprintf(fn,"\t\t\t\t\"node2_id\": \"%s\"\n", pOhLine[index]->to->name);
+			line_object["node2_id"] = pOhLine[index]->to->name;
 			//write line phases as boolean values
-			fprintf(fn,"\t\t\t\t\"has_phase\": [%s, %s, %s]\n", (pOhLine[index]->has_phase(PHASE_A)? "true":"false"),(pOhLine[index]->has_phase(PHASE_B)? "true":"false"), (pOhLine[index]->has_phase(PHASE_C)? "true":"false"));
+			sprintf(buffer, "[%s, %s, %s]", (pOhLine[index]->has_phase(PHASE_A)? "true":"false"),(pOhLine[index]->has_phase(PHASE_B)? "true":"false"), (pOhLine[index]->has_phase(PHASE_C)? "true":"false"));
+			line_object["has_phase"] = buffer;
 			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
-			fprintf(fn,"\t\t\t\t\"capacity\": \"%e\"\n", 1e30);
+			line_object["capacity"] = 1e30;
 			//write the length
-			fprintf(fn,"\t\t\t\t\"length\": \"%.15f\"\n", pOhLine[index]->length);
+			line_object["length"] = pOhLine[index]->length;
 			//write the num_phases
-			int phaseCount = 0;
+			phaseCount = 0;
 			if(pOhLine[index]->has_phase(PHASE_A)){
 				phaseCount++;
 			}
@@ -247,36 +207,20 @@ int jsondump::dump(TIMESTAMP t)
 				phaseCount++;
 			}
 			if(phaseCount != 0){
-				fprintf(fn,"\t\t\t\t\"num_phases\": \"%d\",\n", phaseCount);
+				line_object["num_phases"] = phaseCount;
 			} else {
 				gl_error("No phase found");
 				return 0;
 			}
 			//write is_transformer (now only write line object, so will only be false)
-			fprintf(fn,"\t\t\t\t\"is_transformer\": false\n");
+			line_object["is_transformer"] = "false";
+
 			//write line configuration, here also start to store per unit configuration data
-
-//				OBJECT *lineConfObj = NULL;
-//				while(obj_lineConf = gl_find_next(lineConfs,obj_lineConf)){
-////					pLineConf[index] = OBJECTDATA(obj_lineConf,line_configuration);
-//					line_configuration *config_temp = OBJECTDATA(obj_lineConf, line_configuration);
-//					fprintf(fn,"%s\n",config_temp->get_name());
-//					index++;
-//				}
-
-//				fprintf(fn,"%s\n",pLineConf[0]->get_name());
-//				fprintf(fn,"%s\n",config->get_name());
-//				fprintf(fn,"%d\n",strcmp(pLineConf[0]->get_name(),config->get_name()));
-//				line_configuration *config_temp = OBJECTDATA(pLineConf[0], line_configuration);
-
 			line_configuration *config = OBJECTDATA(pOhLine[index]->configuration, line_configuration);
 			int i = 0;
 			for (; i < lineConfs->hit_count; i++) {
 				if ((strcmp(pLineConf[i]->get_name(),config->get_name())) == 0) break;
 			}
-//				fprintf(fn,"%s\n",pLineConf[i]->get_name());
-//				fprintf(fn,"%s\n",config->get_name());
-//				fprintf(fn,"%d\n",strcmp(pLineConf[i]->get_name(),config->get_name()));
 			if ((i < lineConfs->hit_count) && (b_mat_defined[i] != true)) {
 				for (int m = 0; m < 3; m++) {
 					for (int n = 0; n < 3; n++) {
@@ -285,32 +229,32 @@ int jsondump::dump(TIMESTAMP t)
 				}
 				b_mat_defined[i] = true;
 			}
+
 			//write line_code
-			fprintf(fn,"\t\t\t\t\"line_code\": \"%s\",\n", config->get_name());
+			line_object["line_code"] = config->get_name();
 			//write construction cost - only default value
-			fprintf(fn,"\t\t\t\t\"construction_cost\": \"%e\",\n", 1e30);
+			line_object["construction_cost"] = 1e30;
 			//write hardening cost - only default cost
-			fprintf(fn,"\t\t\t\t\"harden_cost\": \"%e\",\n", 1e30);
+			line_object["harden_cost"] = 1e30;
 			//write switch cost - only default cost
-			fprintf(fn,"\t\t\t\t\"switch_cost\": \"%e\",\n", 1e30);
+			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			fprintf(fn,"\t\t\t\t\"is_new\": \"%s\",\n", "false");
+			line_object["is_new"] = "false";
 			//write flag of harden - only default cost
-			fprintf(fn,"\t\t\t\t\"can_harden\": \"%s\",\n", "false");
+			line_object["can_harden"] = "false";
 			//write flag of add switch - only default cost
-			fprintf(fn,"\t\t\t\t\"can_add_switch\": \"%s\",\n", "false");
+			line_object["can_add_switch"] = "false";
 			//write flag of switch existence - only default cost
-			fprintf(fn,"\t\t\t\t\"has_switch\": \"%s\",\n", "false");
+			line_object["has_switch"] = "false";
 			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
 			index++;
-			if (index < ohlines->hit_count) {
-				fprintf(fn,"\t\t\t},\n");
-			} else if (uglines->hit_count != 0 | tplines->hit_count != 0) {
-				fprintf(fn,"\t\t\t},\n");
-			} else {
-				fprintf(fn,"\t\t\t}\n");
-				fprintf(fn,"\t\t],\n");
-			}
 		}
 	}
 
@@ -333,21 +277,21 @@ int jsondump::dump(TIMESTAMP t)
 			}
 
 			//write the underground
-			fprintf(fn,"\t\t\t{\n");
-			//write the name (not id I think)
-			fprintf(fn,"\t\t\t\t\"id\": \"%s\"\n", obj->name);
+			// Write the name (not id)
+			line_object["id"] = obj->name;
 			//write from node name
-			fprintf(fn,"\t\t\t\t\"node1_id\": \"%s\"\n", pUgLine[index]->from->name);
+			line_object["node1_id"] = pUgLine[index]->from->name;
 			//write to node name
-			fprintf(fn,"\t\t\t\t\"node2_id\": \"%s\"\n", pUgLine[index]->to->name);
+			line_object["node2_id"] = pUgLine[index]->to->name;
 			//write line phases as boolean values
-			fprintf(fn,"\t\t\t\t\"has_phase\": [%s, %s, %s]\n", (pUgLine[index]->has_phase(PHASE_A)? "true":"false"),(pUgLine[index]->has_phase(PHASE_B)? "true":"false"), (pUgLine[index]->has_phase(PHASE_C)? "true":"false"));
+			sprintf(buffer, "[%s, %s, %s]", (pUgLine[index]->has_phase(PHASE_A)? "true":"false"),(pUgLine[index]->has_phase(PHASE_B)? "true":"false"), (pUgLine[index]->has_phase(PHASE_C)? "true":"false"));
+			line_object["has_phase"] = buffer;
 			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
-			fprintf(fn,"\t\t\t\t\"capacity\": \"%e\"\n", 1e30);
+			line_object["capacity"] = 1e30;
 			//write the length
-			fprintf(fn,"\t\t\t\t\"length\": \"%.15f\"\n", pUgLine[index]->length);
+			line_object["length"] = pUgLine[index]->length;
 			//write the num_phases
-			int phaseCount = 0;
+			phaseCount = 0;
 			if(pUgLine[index]->has_phase(PHASE_A)){
 				phaseCount++;
 			}
@@ -358,13 +302,14 @@ int jsondump::dump(TIMESTAMP t)
 				phaseCount++;
 			}
 			if(phaseCount != 0){
-				fprintf(fn,"\t\t\t\t\"num_phases\": \"%d\",\n", phaseCount);
+				line_object["num_phases"] = phaseCount;
 			} else {
 				gl_error("No phase found");
 				return 0;
 			}
 			//write is_transformer (now only write line object, so will only be false)
-			fprintf(fn,"\t\t\t\t\"is_transformer\": false\n");
+			line_object["is_transformer"] = "false";
+
 			//write line configuration, here also start to store per unit configuration data
 			line_configuration *config = OBJECTDATA(pUgLine[index]->configuration, line_configuration);
 			int i = 0;
@@ -380,31 +325,30 @@ int jsondump::dump(TIMESTAMP t)
 				b_mat_defined[i] = true;
 			}
 			//write line_code
-			fprintf(fn,"\t\t\t\t\"line_code\": \"%s\",\n", config->get_name());
+			line_object["line_code"] = config->get_name();
 			//write construction cost - only default value
-			fprintf(fn,"\t\t\t\t\"construction_cost\": \"%e\",\n", 1e30);
+			line_object["construction_cost"] = 1e30;
 			//write hardening cost - only default cost
-			fprintf(fn,"\t\t\t\t\"harden_cost\": \"%e\",\n", 1e30);
+			line_object["harden_cost"] = 1e30;
 			//write switch cost - only default cost
-			fprintf(fn,"\t\t\t\t\"switch_cost\": \"%e\",\n", 1e30);
+			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			fprintf(fn,"\t\t\t\t\"is_new\": \"%s\",\n", "false");
+			line_object["is_new"] = "false";
 			//write flag of harden - only default cost
-			fprintf(fn,"\t\t\t\t\"can_harden\": \"%s\",\n", "false");
+			line_object["can_harden"] = "false";
 			//write flag of add switch - only default cost
-			fprintf(fn,"\t\t\t\t\"can_add_switch\": \"%s\",\n", "false");
+			line_object["can_add_switch"] = "false";
 			//write flag of switch existence - only default cost
-			fprintf(fn,"\t\t\t\t\"has_switch\": \"%s\",\n", "false");
+			line_object["has_switch"] = "false";
 			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
 			index++;
-			if (index < uglines->hit_count) {
-				fprintf(fn,"\t\t\t},\n");
-			} else if (tplines->hit_count != 0) {
-				fprintf(fn,"\t\t\t},\n");
-			} else {
-				fprintf(fn,"\t\t\t}\n");
-				fprintf(fn,"\t\t],\n");
-			}
 		}
 	}
 
@@ -428,21 +372,21 @@ int jsondump::dump(TIMESTAMP t)
 			}
 
 			//write the overhead_line
-			fprintf(fn,"\t\t\t{\n");
-			//write the name (not id I think)
-			fprintf(fn,"\t\t\t\t\"id\": \"%s\"\n", obj->name);
+			// Write the name (not id)
+			line_object["id"] = obj->name;
 			//write from node name
-			fprintf(fn,"\t\t\t\t\"node1_id\": \"%s\"\n", pTpLine[index]->from->name);
+			line_object["node1_id"] = pTpLine[index]->from->name;
 			//write to node name
-			fprintf(fn,"\t\t\t\t\"node2_id\": \"%s\"\n", pTpLine[index]->to->name);
+			line_object["node2_id"] = pTpLine[index]->to->name;
 			//write line phases as boolean values
-			fprintf(fn,"\t\t\t\t\"has_phase\": [%s, %s, %s]\n", (pTpLine[index]->has_phase(PHASE_A)? "true":"false"),(pTpLine[index]->has_phase(PHASE_B)? "true":"false"), (pTpLine[index]->has_phase(PHASE_C)? "true":"false"));
+			sprintf(buffer, "[%s, %s, %s]", (pTpLine[index]->has_phase(PHASE_A)? "true":"false"),(pTpLine[index]->has_phase(PHASE_B)? "true":"false"), (pTpLine[index]->has_phase(PHASE_C)? "true":"false"));
+			line_object["has_phase"] = buffer;
 			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
-			fprintf(fn,"\t\t\t\t\"capacity\": \"%e\"\n", 1e30);
+			line_object["capacity"] = 1e30;
 			//write the length
-			fprintf(fn,"\t\t\t\t\"length\": \"%.15f\"\n", pTpLine[index]->length);
+			line_object["length"] = pTpLine[index]->length;
 			//write the num_phases
-			int phaseCount = 0;
+			phaseCount = 0;
 			if(pTpLine[index]->has_phase(PHASE_A)){
 				phaseCount++;
 			}
@@ -453,13 +397,14 @@ int jsondump::dump(TIMESTAMP t)
 				phaseCount++;
 			}
 			if(phaseCount != 0){
-				fprintf(fn,"\t\t\t\t\"num_phases\": \"%d\",\n", phaseCount);
+				line_object["num_phases"] = phaseCount;
 			} else {
 				gl_error("No phase found");
 				return 0;
 			}
 			//write is_transformer (now only write line object, so will only be false)
-			fprintf(fn,"\t\t\t\t\"is_transformer\": false\n");
+			line_object["is_transformer"] = "false";
+
 			//write line configuration, here also start to store per unit configuration data
 			triplex_line_configuration *config = OBJECTDATA(pTpLine[index]->configuration, triplex_line_configuration);
 			int i = 0;
@@ -474,39 +419,42 @@ int jsondump::dump(TIMESTAMP t)
 				}
 				b_mat_tp_defined[i] = true;
 			}
+
 			//write line_code
-			fprintf(fn,"\t\t\t\t\"line_code\": \"%s\",\n", config->get_name());
+			line_object["line_code"] = config->get_name();
 			//write construction cost - only default value
-			fprintf(fn,"\t\t\t\t\"construction_cost\": \"%e\",\n", 1e30);
+			line_object["construction_cost"] = 1e30;
 			//write hardening cost - only default cost
-			fprintf(fn,"\t\t\t\t\"harden_cost\": \"%e\",\n", 1e30);
+			line_object["harden_cost"] = 1e30;
 			//write switch cost - only default cost
-			fprintf(fn,"\t\t\t\t\"switch_cost\": \"%e\",\n", 1e30);
+			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			fprintf(fn,"\t\t\t\t\"is_new\": \"%s\",\n", "false");
+			line_object["is_new"] = "false";
 			//write flag of harden - only default cost
-			fprintf(fn,"\t\t\t\t\"can_harden\": \"%s\",\n", "false");
+			line_object["can_harden"] = "false";
 			//write flag of add switch - only default cost
-			fprintf(fn,"\t\t\t\t\"can_add_switch\": \"%s\",\n", "false");
+			line_object["can_add_switch"] = "false";
 			//write flag of switch existence - only default cost
-			fprintf(fn,"\t\t\t\t\"has_switch\": \"%s\",\n", "false");
+			line_object["has_switch"] = "false";
 			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
 			index++;
-			if (index < uglines->hit_count) {
-				fprintf(fn,"\t\t\t},\n");
-			} else {
-				fprintf(fn,"\t\t\t}\n");
-				fprintf(fn,"\t\t],\n");
-			}
 		}
 	}
 
+	// Write line metrics into metrics_lines dictionary
+	metrics_lines["properties"]["lines"] = jsonArray;
+
+	// clear jsonArray
+	jsonArray.clear();
 
 	//write all line configurations
-	if(lineConfs != NULL && tpLineConfs != NULL) {
-		fprintf(fn,"\t\t\"line_codes\": [\n");
-	}
-
 	//overhead and underground line configurations
 	index = 0;
 	if(lineConfs != NULL){
@@ -515,11 +463,10 @@ int jsondump::dump(TIMESTAMP t)
 				break;
 			}
 			//write each line configuration data
-			fprintf(fn,"\t\t\t\{\n");
 			// write line_code
-			fprintf(fn,"\t\t\t\t\"line_code\": %s,\n", pLineConf[index]->get_name());
+			line_configuration_object["line_code"] = pLineConf[index]->get_name();
 			//write num_phases
-			int phaseCount = 0;
+			phaseCount = 0;
 			if((pLineConf[index]->phaseA_conductor) != NULL){
 				phaseCount++;
 			}
@@ -529,30 +476,38 @@ int jsondump::dump(TIMESTAMP t)
 			if((pLineConf[index]->phaseC_conductor) != NULL){
 				phaseCount++;
 			}
-			fprintf(fn,"\t\t\t\t\"num_phases\": %d,\n", phaseCount);
+			line_configuration_object["num_phases"] = phaseCount;
+
 			//write rmatrix
-			fprintf(fn,"\t\t\t\t\"rmatrix\": [\n");
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][0][0].Re(),b_mat_pu[index][0][1].Re(),b_mat_pu[index][0][2].Re());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][1][0].Re(),b_mat_pu[index][1][1].Re(),b_mat_pu[index][1][2].Re());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][2][0].Re(),b_mat_pu[index][2][1].Re(),b_mat_pu[index][2][2].Re());
-			fprintf(fn,"\t\t\t\t],\n");
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_pu[index][m][n].Re());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
+			}
+			line_configuration_object["rmatrix"] = jsonArray2;
+			jsonArray2.clear();
+
 			//write xmatrix
-			fprintf(fn,"\t\t\t\t\"xmatrix\": [\n");
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][0][0].Im(),b_mat_pu[index][0][1].Im(),b_mat_pu[index][0][2].Im());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][1][0].Im(),b_mat_pu[index][1][1].Im(),b_mat_pu[index][1][2].Im());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_pu[index][2][0].Im(),b_mat_pu[index][2][1].Im(),b_mat_pu[index][2][2].Im());
-			fprintf(fn,"\t\t\t\t],\n");
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_pu[index][m][n].Im());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
+			}
+			line_configuration_object["xmatrix"] = jsonArray2;
+			jsonArray2.clear();
 			// end this line configuration
+
+			// Append to line array
+			jsonArray.append(line_configuration_object);
+
+			// clear JSON value
+			line_configuration_object.clear();
+
 			index++;
-			if (index < lineConfs->hit_count) {
-				fprintf(fn,"\t\t\t},\n");
-			} else if (tpLineConfs->hit_count != 0) {
-				fprintf(fn,"\t\t\t},\n");
-			}
-			else {
-				fprintf(fn,"\t\t\t}\n");
-				fprintf(fn,"\t\t]\n");
-			}
 		}
 	}
 
@@ -564,12 +519,11 @@ int jsondump::dump(TIMESTAMP t)
 			if(index >= tpLineConfs->hit_count){
 				break;
 			}
-			//write each line configuration data
-			fprintf(fn,"\t\t\t\{\n");
+			// write each line configuration data
 			// write line_code
-			fprintf(fn,"\t\t\t\t\"line_code\": %s,\n", pTpLineConf[index]->get_name());
-			//write num_phases
-			int phaseCount = 0;
+			line_configuration_object["line_code"] = pTpLineConf[index]->get_name();
+			// write num_phases
+			phaseCount = 0;
 			if((pTpLineConf[index]->phaseA_conductor) != NULL){
 				phaseCount++;
 			}
@@ -579,35 +533,52 @@ int jsondump::dump(TIMESTAMP t)
 			if((pTpLineConf[index]->phaseC_conductor) != NULL){
 				phaseCount++;
 			}
-			fprintf(fn,"\t\t\t\t\"num_phases\": %d,\n", phaseCount);
-			//write rmatrix
-			fprintf(fn,"\t\t\t\t\"rmatrix\": [\n");
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][0][0].Re(),b_mat_tp_pu[index][0][1].Re(),b_mat_tp_pu[index][0][2].Re());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][1][0].Re(),b_mat_tp_pu[index][1][1].Re(),b_mat_tp_pu[index][1][2].Re());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][2][0].Re(),b_mat_tp_pu[index][2][1].Re(),b_mat_tp_pu[index][2][2].Re());
-			fprintf(fn,"\t\t\t\t],\n");
-			//write xmatrix
-			fprintf(fn,"\t\t\t\t\"xmatrix\": [\n");
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][0][0].Im(),b_mat_tp_pu[index][0][1].Im(),b_mat_tp_pu[index][0][2].Im());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][1][0].Im(),b_mat_tp_pu[index][1][1].Im(),b_mat_tp_pu[index][1][2].Im());
-			fprintf(fn,"\t\t\t\t\t [%.15f, %.15f, %.15f],\n", b_mat_tp_pu[index][2][0].Im(),b_mat_tp_pu[index][2][1].Im(),b_mat_tp_pu[index][2][2].Im());
-			fprintf(fn,"\t\t\t\t],\n");
-			// end this line configuration
-			index++;
-			if (index < tpLineConfs->hit_count) {
-				fprintf(fn,"\t\t\t},\n");
-			} else {
-				fprintf(fn,"\t\t\t}\n");
-				fprintf(fn,"\t\t]\n");
+			line_configuration_object["num_phases"] = phaseCount;
+
+			// write rmatrix
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_tp_pu[index][m][n].Re());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
 			}
+			line_configuration_object["rmatrix"] = jsonArray2;
+			jsonArray2.clear();
+
+			//write xmatrix
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_tp_pu[index][m][n].Im());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
+			}
+			line_configuration_object["xmatrix"] = jsonArray2;
+			jsonArray2.clear();
+			// end this line configuration
+
+			// Append to line array
+			jsonArray.append(line_configuration_object);
+
+			// clear JSON value
+			line_configuration_object.clear();
+
+			index++;
 		}
 	}
 
-	//end of writing the properties
-	fprintf(fn,"\t}\n");
-	fprintf(fn,"}\n");
-	//close file
-	fclose(fn);
+	// Write line metrics into metrics_lines dictionary
+	metrics_lines["properties"]["line_codes"] = jsonArray;
+
+	// Clear jsonArray
+	jsonArray.clear();
+
+	// Write JSON files for line and line_codes
+	out_file.open (filename);
+	out_file << writer.write(metrics_lines) << endl;
+	out_file.close();
+
 	return 1;
 
 }

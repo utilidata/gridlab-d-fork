@@ -10770,6 +10770,12 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 
 				//Determine our number
 				switch (*implemented_fault) {
+					case 0:	// Due to the removal of the faulted branch phases, this fault is not applied nor in the fault list.
+					{
+						gl_warning("The event fault is not applied since the faulted phases have been removed (either by protection devices, or not exist)");
+
+						break;
+					}
 					case 1:	//SLG-A
 					{
 						//Get the number
@@ -10903,43 +10909,45 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 					}
 				}//End switch/case
 
-				//Now delete it from the linked list
-				ret_value = del_fault_from_linked_list(temp_fault_number);
+				if (temp_fault_number != 0) {
+					//Now delete it from the linked list
+					ret_value = del_fault_from_linked_list(temp_fault_number);
 
-				//Make sure it worked
-				if (ret_value == -1)
-				{
-					GL_THROW("Unable to delete fault from linked list");
-					/*  TROUBLESHOOT
-					While attempting to remove a fault's reference from the tracking linked list,
-					an error occurred.  Please check your code.  If the error persists, please submit
-					your code and a bug report via the ticketing system.
-					*/
-				}
-				else if (ret_value == 0)	//Empty list, this fault never triggered anything
-				{
-					gl_warning("Empty fault list - nothing was ever triggered");
-					/*  TROUBLESHOOT
-					While attempting to remove a fault's reference from the tracking linked list, no
-					fault at all was found.  This may mean the fault cleared before any protective device
-					acted, or there are no protective devices.
-					*/
-				}
+					//Make sure it worked
+					if (ret_value == -1)
+					{
+						GL_THROW("Unable to delete fault from linked list");
+						/*  TROUBLESHOOT
+						While attempting to remove a fault's reference from the tracking linked list,
+						an error occurred.  Please check your code.  If the error persists, please submit
+						your code and a bug report via the ticketing system.
+						*/
+					}
+					else if (ret_value == 0)	//Empty list, this fault never triggered anything
+					{
+						gl_warning("Empty fault list - nothing was ever triggered");
+						/*  TROUBLESHOOT
+						While attempting to remove a fault's reference from the tracking linked list, no
+						fault at all was found.  This may mean the fault cleared before any protective device
+						acted, or there are no protective devices.
+						*/
+					}
 
-				//And call the routine to make sure it is completely gone
-				ret_value = depopulate_fault_arrays(temp_fault_number, false);
+					//And call the routine to make sure it is completely gone
+					ret_value = depopulate_fault_arrays(temp_fault_number, false);
 
-				//Make sure it worked
-				if (ret_value == FAILED)
-				{
-					GL_THROW("Failed to properly remove all instances of fault");
-					/*  TROUBLESHOOT
-					While attempting to remove a completed fault, an error occurred.  Please
-					try again.  If the error persists, please submit you code and a bug report
-					via the ticketing system.
-					*/
+					//Make sure it worked
+					if (ret_value == FAILED)
+					{
+						GL_THROW("Failed to properly remove all instances of fault");
+						/*  TROUBLESHOOT
+						While attempting to remove a completed fault, an error occurred.  Please
+						try again.  If the error persists, please submit you code and a bug report
+						via the ticketing system.
+						*/
+					}
+					//Default else - worked fine
 				}
-				//Default else - worked fine
 			}//Proper fault range
 		}//End meshed fault mode only
 

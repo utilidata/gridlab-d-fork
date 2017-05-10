@@ -15,8 +15,6 @@
 #include "triplex_line_configuration.h"
 
 
-
-
 class jsondump : public gld_object
 {
 public:
@@ -40,8 +38,10 @@ public:
 	TIMESTAMP runtime;
 	int32 runcount;
 	complex *node_voltage;
+
 public:
 	static CLASS *oclass;
+
 public:
 	jsondump(MODULE *mod);
 	int create(void);
