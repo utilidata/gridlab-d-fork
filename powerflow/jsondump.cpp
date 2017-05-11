@@ -39,47 +39,45 @@ jsondump::jsondump(MODULE *mod)
 		// publish the class properties
 		if (gl_publish_variable(oclass,
 			PT_char32,"group",PADDR(group),PT_DESCRIPTION,"the group ID to output data for (all links if empty)",
-			PT_char256,"filename",PADDR(filename),PT_DESCRIPTION,"the file to dump the current data into",
+			PT_char256,"filename_dump_line",PADDR(filename_dump_line),PT_DESCRIPTION,"the file to dump the current data into",
+			PT_char256,"filename_dump_reliability",PADDR(filename_dump_reliability),PT_DESCRIPTION,"the file to dump the current data into",
 			PT_timestamp,"runtime",PADDR(runtime),PT_DESCRIPTION,"the time to check voltage data",
 			PT_int32,"runcount",PADDR(runcount),PT_ACCESS,PA_REFERENCE,PT_DESCRIPTION,"the number of times the file has been written to",
+			PT_bool,"write_line",PADDR(write_line),PT_DESCRIPTION,"Flag indicating whether line information will be written into JSON file or not",
+			PT_bool,"write_reliability",PADDR(write_reliability),PT_DESCRIPTION,"Flag indicating whether reliabililty information will be written into JSON file or not",
+
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 	}
 }
 
 int jsondump::create(void)
 {
+	// Set write flag default as false
+	write_line = false;
+	write_reliability = false;
+
 	group.erase();
 	runcount = 0;
+
 	return 1;
 }
 
 int jsondump::init(OBJECT *parent)
 {
-	if(filename[0] == '\0'){
-		gl_error("No filename was specified. Unable to open file for righting.");
-		return 0;
-		/* TROUBLESHOOT
-		No file name was specifed. Please assign a file name to record the line/link impedance values in the jsondump object.
-		*/
+	// Check if we need to dump line and line configuration to JSON file
+	if(filename_dump_line[0] == '\0' && write_line == true){
+		filename_dump_line = "JSON_dump_line.json";
+	}
+
+	// Check if we need to dump reliability to JSON file
+	if(filename_dump_reliability[0] == '\0' && write_reliability == true){
+		filename_dump_line = "JSON_dump_reliability.json";
 	}
 
 	return 1;
 }
 
-int jsondump::isa(char *classname)
-{
-	return strcmp(classname,"jsondump")==0;
-}
-
-complex * jsondump::get_complex(OBJECT *obj, char *name)
-{
-	PROPERTY *p = gl_get_property(obj,name);
-	if (p==NULL || p->ptype!=PT_complex)
-		return NULL;
-	return (complex*)GETADDR(obj,p);
-}
-
-int jsondump::dump(TIMESTAMP t)
+int jsondump::dump_line()
 {
 	FINDLIST *ohlines, *tplines, *uglines, *lineConfs, *tpLineConfs;
 	OBJECT *obj = NULL;
@@ -88,9 +86,6 @@ int jsondump::dump(TIMESTAMP t)
 	char buffer[1024];
 	FILE *fn = NULL;
 	int index = 0;
-	int count = 0;
-	int x = 0;
-	int y = 0;
 	CLASS *obj_class;
 	char timestr[64];
 	PROPERTY *xfmrconfig;
@@ -575,7 +570,7 @@ int jsondump::dump(TIMESTAMP t)
 	jsonArray.clear();
 
 	// Write JSON files for line and line_codes
-	out_file.open (filename);
+	out_file.open (filename_dump_line);
 	out_file << writer.write(metrics_lines) << endl;
 	out_file.close();
 
@@ -583,13 +578,341 @@ int jsondump::dump(TIMESTAMP t)
 
 }
 
+int jsondump::dump_reliability()
+{
+	FINDLIST *powermetrics, *fuses, *reclosers, *sectionalizers, *relays, *capacitors, *regulators;
+	fuse *fuseData;
+	recloser *reclData;
+	sectionalizer *secData;
+	capacitor *capData;
+	regulator *regData;
+	char* indices1366[] = {"SAIFI", "SAIDI", "CAIDI", "ASAI", "MAIFI", NULL};
+	int index1366;
+	double *temp_double;
+	enumeration *temp_emu;
+	OBJECT *obj = NULL;
+	char buffer[1024];
+	FILE *fn = NULL;
+	int index = 0;
+	CLASS *obj_class;
+	char timestr[64];
+
+	// metrics JSON value
+	Json::Value metrics_reliability;	// Output dictionary for line and line configuration metrics
+	Json::Value metrics_1366;
+	Json::Value metrics_protection;
+	Json::Value metrics_others;
+	Json::Value protectionArray; // for storing array of each type of protective device
+	Json::Value protect_obj;
+	Json::Value otherArray; // for storing array of each type of capacitor and regulator devices
+	Json::Value other_obj;
+	Json::Value jsonArray; // for storing temperary opening status of devices
+	// Start write to file
+	Json::StyledWriter writer;
+	// Open file for writing
+	ofstream out_file;
+
+	// Find the objects to be written in
+	powermetrics = gl_find_objects(FL_NEW,FT_CLASS,SAME,"power_metrics",FT_END);	//find all power_metrics
+	fuses = gl_find_objects(FL_NEW,FT_CLASS,SAME,"fuse",FT_END);					//find all fuses
+	reclosers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"recloser",FT_END);			//find all reclosers
+	sectionalizers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"sectionalizer",FT_END);	//find all sectionalizers
+//	relays = gl_find_objects(FL_NEW,FT_CLASS,SAME,"relay",FT_END);					//find all relays
+	capacitors = gl_find_objects(FL_NEW,FT_CLASS,SAME,"capacitor",FT_END);	//find all capacitors
+	regulators = gl_find_objects(FL_NEW,FT_CLASS,SAME,"regulator",FT_END);	//find all regulators
+
+	// Write powermetrics data
+	index = 0;
+	if(powermetrics != NULL){
+
+		while(obj = gl_find_next(powermetrics,obj)){
+
+			// Allow only one power metrics
+			if(index > 1){
+				gl_error("There are more than 1 power metrics defined");
+				return TS_NEVER;
+			}
+
+			// Loop through the reliability indices to find the value and put into JSON variable
+			index1366 = -1;
+			while (indices1366[++index1366] != NULL) {
+
+				temp_double = gl_get_double_by_name(obj, indices1366[index1366]);
+
+				if(temp_double == NULL){
+					gl_error("Unable to to find property for %s: %s is NULL", obj->name, indices1366[index1366]);
+					return TS_NEVER;
+				}
+
+				metrics_1366[indices1366[index1366]] = *temp_double;
+
+			}
+
+			index++;
+		}
+	}
+
+	// Put 1366 indices into the reliability JSON dictionary
+	metrics_reliability["GridLAB-D reliability outputs"] = metrics_1366;
+
+	// Write the protective device data
+	// Fuses
+	index = 0;
+	if(fuses != NULL){
+
+		while(obj = gl_find_next(fuses,obj)){
+			if(index >= fuses->hit_count){
+				break;
+			}
+
+			// Directly obtain the data information from the object
+			fuseData = OBJECTDATA(obj,fuse);
+
+			// Write device name
+			protect_obj["Name"] = obj->name;
+
+			// Write device opening status
+			// Append opening status to array
+			if ((fuseData->phases & 0x04) == 0x04) {
+				sprintf(buffer, "%s", ((fuseData->phase_A_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((fuseData->phases & 0x02) == 0x02) {
+				sprintf(buffer, "%s", ((fuseData->phase_B_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((fuseData->phases & 0x01) == 0x01) {
+				sprintf(buffer, "%s", ((fuseData->phase_C_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+
+			// Put array to the fuse dictionary
+			protect_obj["Device opening status"] = jsonArray;
+			jsonArray.clear();
+
+			// Append fuse to the fuse array
+			protectionArray.append(protect_obj);
+			protect_obj.clear();
+
+			index++;
+		}
+
+		// Put Fuse data into the protection dictionary
+		metrics_protection["Fuse"] = protectionArray;
+		protectionArray.clear();
+	}
+
+	// Reclosers
+	index = 0;
+	if(reclosers != NULL){
+
+		while(obj = gl_find_next(reclosers,obj)){
+			if(index >= reclosers->hit_count){
+				break;
+			}
+
+			// Directly obtain the data information from the object
+			reclData = OBJECTDATA(obj,recloser);
+
+			// Write device name
+			protect_obj["Name"] = obj->name;
+
+			// Write device opening status
+			// Append opening status to array
+			if ((reclData->phases & 0x04) == 0x04) {
+				sprintf(buffer, "%s", ((reclData->phase_A_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((reclData->phases & 0x02) == 0x02) {
+				sprintf(buffer, "%s", ((reclData->phase_B_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((reclData->phases & 0x01) == 0x01) {
+				sprintf(buffer, "%s", ((reclData->phase_C_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+
+			// Put array to the recloser dictionary
+			protect_obj["Device opening status"] = jsonArray;
+			jsonArray.clear();
+
+			// Append recloser to the recloser array
+			protectionArray.append(protect_obj);
+			protect_obj.clear();
+
+			index++;
+		}
+
+		// Put recloser data into the protection dictionary
+		metrics_protection["Recloser"] = protectionArray;
+		protectionArray.clear();
+	}
+
+	// Sectionalizer
+	index = 0;
+	if(sectionalizers != NULL){
+
+		while(obj = gl_find_next(sectionalizers,obj)){
+			if(index >= sectionalizers->hit_count){
+				break;
+			}
+
+			// Directly obtain the data information from the object
+			secData = OBJECTDATA(obj,sectionalizer);
+
+			// Write device name
+			protect_obj["Name"] = obj->name;
+
+			// Write device opening status
+			// Append opening status to array
+			if ((secData->phases & 0x04) == 0x04) {
+				sprintf(buffer, "%s", ((secData->phase_A_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((secData->phases & 0x02) == 0x02) {
+				sprintf(buffer, "%s", ((secData->phase_B_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((secData->phases & 0x01) == 0x01) {
+				sprintf(buffer, "%s", ((secData->phase_C_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+
+			// Put array to the sectionalizer dictionary
+			protect_obj["Device opening status"] = jsonArray;
+			jsonArray.clear();
+
+			// Append sectionalizer to the sectionalizer array
+			protectionArray.append(protect_obj);
+			protect_obj.clear();
+
+			index++;
+		}
+
+		// Put Sectionalizer data into the protection dictionary
+		metrics_protection["Sectionalizer"] = protectionArray;
+		protectionArray.clear();
+	}
+
+	// Write protection metrics into metrics_reliability dictionary
+	metrics_reliability["Protective devices"] = metrics_protection;
+
+	// Clear metrics_protection
+	metrics_protection.clear();
+
+	// Write the capacitor and regulator device data
+	// Capacitors
+	index = 0;
+	if(capacitors != NULL){
+
+		while(obj = gl_find_next(capacitors,obj)){
+			if(index >= capacitors->hit_count){
+				break;
+			}
+
+			// Directly obtain the data information from the object
+			capData = OBJECTDATA(obj,capacitor);
+
+			// Write device name
+			other_obj["Name"] = obj->name;
+
+			// Write device opening status
+			// Append opening status to array
+			if ((capData->pt_phase & 0x04) == 0x04) {
+				sprintf(buffer, "%s", ((capData->switchA_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((capData->pt_phase & 0x02) == 0x02) {
+				sprintf(buffer, "%s", ((capData->switchB_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+			if ((capData->pt_phase & 0x01) == 0x01) {
+				sprintf(buffer, "%s", ((capData->switchC_state == 1)? "true":"false"));
+				jsonArray.append(buffer);
+			}
+
+			// Put array to the dictionary
+			other_obj["Device opening status"] = jsonArray;
+			jsonArray.clear();
+
+			// Append capacitor to the capacitor array
+			otherArray.append(other_obj);
+			other_obj.clear();
+
+			index++;
+		}
+
+		// Put capacitor data into the dictionary
+		metrics_others["Capacitor"] = otherArray;
+		otherArray.clear();
+	}
+
+	// Regulators
+	index = 0;
+	if(regulators != NULL){
+
+		while(obj = gl_find_next(regulators,obj)){
+			if(index >= regulators->hit_count){
+				break;
+			}
+
+			// Directly obtain the data information from the object
+			regData = OBJECTDATA(obj,regulator);
+
+			// Write device name
+			other_obj["Name"] = obj->name;
+
+			// Write device opening status
+			// Append tap positions to array
+			if ((regData->phases & 0x04) == 0x04) {
+				jsonArray.append(regData->tap_A);
+			}
+			if ((regData->phases & 0x02) == 0x02) {
+				jsonArray.append(regData->tap_B);
+			}
+			if ((regData->phases & 0x01) == 0x01) {
+				jsonArray.append(regData->tap_C);
+			}
+
+			// Put array to the dictionary
+			other_obj["Tap position"] = jsonArray;
+			jsonArray.clear();
+
+			// Append capacitor to the regulator array
+			otherArray.append(other_obj);
+			other_obj.clear();
+
+			index++;
+		}
+
+		// Put capacitor data into the dictionary
+		metrics_others["Regulator"] = otherArray;
+		otherArray.clear();
+	}
+
+	// Write other device metrics into metrics_reliability dictionary
+	metrics_reliability["Other devices"] = metrics_others;
+
+	// Clear metrics_protection
+	metrics_others.clear();
+
+	// Write JSON files for line and line_codes
+	out_file.open (filename_dump_reliability);
+	out_file << writer.write(metrics_reliability) << endl;
+	out_file.close();
+
+	return 1;
+
+}
+
+
 TIMESTAMP jsondump::commit(TIMESTAMP t){
 	if(runtime == 0){
 		runtime = t;
 	}
-	if((t == runtime || runtime == TS_NEVER) && (runcount < 1)){
+	if((write_line == true) && (t == runtime || runtime == TS_NEVER) && (runcount < 1)){
 		/* dump */
-		int rv = dump(t);
+		int rv = dump_line();
 		++runcount;
 		if(rv == 0){
 			return TS_INVALID;
@@ -602,6 +925,35 @@ TIMESTAMP jsondump::commit(TIMESTAMP t){
 			return TS_NEVER;
 		}
 	}
+}
+
+int jsondump::finalize(){
+
+	if (write_reliability == true) {
+
+		int rv = dump_reliability();
+
+		if(rv != 1){
+			return TS_INVALID;
+		}
+
+	}
+
+	return TS_NEVER;
+}
+
+
+int jsondump::isa(char *classname)
+{
+	return strcmp(classname,"jsondump")==0;
+}
+
+complex * jsondump::get_complex(OBJECT *obj, char *name)
+{
+	PROPERTY *p = gl_get_property(obj,name);
+	if (p==NULL || p->ptype!=PT_complex)
+		return NULL;
+	return (complex*)GETADDR(obj,p);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -666,6 +1018,28 @@ EXPORT TIMESTAMP commit_jsondump(OBJECT *obj, TIMESTAMP t1, TIMESTAMP t2){
 		return my->commit(t1);
 	}
 	I_CATCHALL(commit,jsondump);
+}
+
+EXPORT int finalize_jsondump(OBJECT *obj)
+{
+
+	jsondump *my = OBJECTDATA(obj,jsondump);
+
+	try {
+			return obj!=NULL ? my->finalize() : 0;
+		}
+		catch (char *msg) {
+			gl_error("finalize_jsondump" "(obj=%d;%s): %s", obj->id, obj->name?obj->name:"unnamed", msg);
+			return TS_INVALID;
+		}
+		catch (const char *msg) {
+			gl_error("finalize_jsondump" "(obj=%d;%s): %s", obj->id, obj->name?obj->name:"unnamed", msg);
+			return TS_INVALID;
+		}
+		catch (...) {
+			gl_error("finalize_jsondump" "(obj=%d;%s): unhandled exception", obj->id, obj->name?obj->name:"unnamed");
+			return TS_INVALID;
+		}
 }
 
 EXPORT int isa_jsondump(OBJECT *obj, char *classname)

@@ -5,9 +5,11 @@
 #define _jsondump_H
 
 #include "powerflow.h"
+#include "power_metrics.h"
 #include "line.h"
-#include "transformer.h"
-#include "node.h"
+#include "fuse.h"
+#include "recloser.h"
+#include "sectionalizer.h"
 #include "regulator.h"
 #include "capacitor.h"
 #include "switch_object.h"
@@ -20,7 +22,11 @@ class jsondump : public gld_object
 public:
 	int first_run;
 	char32 group;
-	char256 filename;
+	char256 filename_dump_line;
+	char256 filename_dump_reliability;
+	bool write_line;
+	bool write_reliability;
+	power_metrics **pPowerMetrics;
 	link_object **pFuse;
 	line **pOhLine;
 	link_object **pRecloser;
@@ -29,7 +35,6 @@ public:
 	link_object **pSectionalizer;
 	link_object **pSeriesReactor;
 	switch_object **pSwitch;
-	transformer **pTransformer;
 	line **pTpLine;
 	line **pUgLine;
 	line_configuration **pLineConf;
@@ -47,8 +52,10 @@ public:
 	int create(void);
 	int init(OBJECT *parent);
 	TIMESTAMP commit(TIMESTAMP t);
+	int finalize();
 	int isa(char *classname);
-	int dump(TIMESTAMP t);
+	int dump_line();
+	int dump_reliability();
 	complex *get_complex(OBJECT *obj, char *name);
 };
 
