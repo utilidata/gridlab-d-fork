@@ -1026,11 +1026,18 @@ void fault_check::support_search_links_mesh(void)
 	//Loop through all of the nodes and update them with the valid phases we found
 	for (indexval=0; indexval<NR_bus_count; indexval++)
 	{
-		//Just force to the valid phases - mask by the original phases, just in case
-		result_phases = ((valid_phases[indexval] & 0x07) | (NR_busdata[indexval].origphases & 0xF8));
+		if ((valid_phases[indexval] & 0x07) != 0x00)
+		{
+			//Just force to the valid phases - mask by the original phases, just in case
+			result_phases = ((valid_phases[indexval] & 0x07) | (NR_busdata[indexval].origphases & 0xF8));
 
-		//Store it
-		NR_busdata[indexval].phases = result_phases;
+			//Store it
+			NR_busdata[indexval].phases = result_phases;
+		}
+		else	//Just blank it all
+		{
+			NR_busdata[indexval].phases = 0x00;
+		}
 	}//End bus progression
 
 //	// Loop through fault_linked_list, and check if the faulted section is to be isolated by this reliability check
@@ -1057,39 +1064,61 @@ void fault_check::support_search_links_mesh(void)
 		//So this singles out lines, triplex_lines, and transformers
 		if ((NR_branchdata[indexval].lnk_type == 0) || (NR_branchdata[indexval].lnk_type == 1) || (NR_branchdata[indexval].lnk_type == 4))
 		{
-			//Not a switchable device, so just put our phases in
-			NR_branchdata[indexval].phases = result_phases;
-
+			if (avail_phases != 0x00)
+			{
+				//Not a switchable device, so just put our phases in
+				NR_branchdata[indexval].phases = result_phases;
+			}
+			else	//Nothing available, zero it all the way (draconian)
+			{
+				NR_branchdata[indexval].phases = 0x00;
+			}
 		}
 		else if (NR_branchdata[indexval].lnk_type != 3)	//Not a fuse (so a switch device)
 		{
-			//See if we're actually closed
-			if (*NR_branchdata[indexval].status == 1)
+			//See if any phases were available
+			if (avail_phases != 0x00)
 			{
-				//Put the phases in
-				NR_branchdata[indexval].phases = result_phases;
+				//See if we're actually closed
+				if (*NR_branchdata[indexval].status == 1)
+				{
+					//Put the phases in
+					NR_branchdata[indexval].phases = result_phases;
+				}
+				else	//Open, so blank us
+				{
+					//Draconian blank - all phases
+					NR_branchdata[indexval].phases = 0x00;
+				}
 			}
-			else	//Open, so blank us
+			else	//Regardless of status, zero us all the way
 			{
-				//Draconian blank - just lower phases
-				NR_branchdata[indexval].phases = NR_branchdata[indexval].origphases & 0xF8;
+				NR_branchdata[indexval].phases = 0x00;
 			}
 		}
 		else	//We are a fuse
 		{
-			//Check service flag
-			if (*NR_branchdata[indexval].status == 1)
+			//See if any phases are supposed to be in service first
+			if (avail_phases != 0x00)
 			{
-				//In-service -- see which phases are active and create a mask
-				temp_phases = (((~NR_branchdata[indexval].faultphases) & 0x07) | 0xF8);
+				//Check service flag
+				if (*NR_branchdata[indexval].status == 1)
+				{
+					//In-service -- see which phases are active and create a mask
+					temp_phases = (((~NR_branchdata[indexval].faultphases) & 0x07) | 0xF8);
 
-				//Mask out the original
-				NR_branchdata[indexval].phases = result_phases & temp_phases;
+					//Mask out the original
+					NR_branchdata[indexval].phases = result_phases & temp_phases;
+				}
+				else	//Open, so blank us
+				{
+					//Draconian blank
+					NR_branchdata[indexval].phases = 0x00;
+				}
 			}
-			else	//Open, so blank us
+			else	//Nothing supported, so blank all, on principle
 			{
-				//Draconian blank - just lower phases
-				NR_branchdata[indexval].phases = NR_branchdata[indexval].origphases & 0xF8;
+				NR_branchdata[indexval].phases = 0x00;
 			}
 		}
 	}//End Link progression
