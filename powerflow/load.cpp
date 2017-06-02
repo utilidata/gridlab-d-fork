@@ -39,6 +39,11 @@ load::load(MODULE *mod) : node(mod)
 				PT_KEYWORD, "C", (enumeration)LC_COMMERCIAL,
 				PT_KEYWORD, "I", (enumeration)LC_INDUSTRIAL,
 				PT_KEYWORD, "A", (enumeration)LC_AGRICULTURAL,
+			PT_enumeration, "load_priority", PADDR(load_priority),PT_DESCRIPTION,"Load classification based on priority",
+				PT_KEYWORD, "DISCRETIONARY", (enumeration)DISCRETIONARY,
+				PT_KEYWORD, "PRIORITY", (enumeration)PRIORITY,
+				PT_KEYWORD, "CRITICAL", (enumeration)CRITICAL,
+			PT_bool, "load_shedding", PADDR(load_shedding), PT_DESCRIPTION, "Boolean value indicating whether load is to be shed; default is false",
 			PT_complex, "constant_power_A[VA]", PADDR(constant_power[0]),PT_DESCRIPTION,"constant power load on phase A, specified as VA",
 			PT_complex, "constant_power_B[VA]", PADDR(constant_power[1]),PT_DESCRIPTION,"constant power load on phase B, specified as VA",
 			PT_complex, "constant_power_C[VA]", PADDR(constant_power[2]),PT_DESCRIPTION,"constant power load on phase C, specified as VA",
@@ -206,6 +211,9 @@ int load::create(void)
 
 	//in-rush related zeroing
 	prev_shunt[0] = prev_shunt[1] = prev_shunt[2] = complex(0.0,0.0);
+
+	//Load shedding property
+	load_shedding = false;
 
     return res;
 }
@@ -408,11 +416,11 @@ TIMESTAMP load::sync(TIMESTAMP t0)
 	else
 		fault_mode = true;
 
-	//Call the GFA-type functionality, if appropriate
-	if (GFA_enable == true)
+	//Call the GFA-type functionality, if appropriate; Or if load shedding is needed
+	if (GFA_enable == true || load_shedding == true)
 	{
 		//See if we're enabled - just skipping the load update should be enough, if we are not
-		if (GFA_status == true)
+		if (GFA_status == true && load_shedding == false)
 		{
 			//Functionalized so deltamode can parttake
 			load_update_fxn(fault_mode);

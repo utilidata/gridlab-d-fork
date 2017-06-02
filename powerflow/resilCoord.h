@@ -45,6 +45,8 @@ public:
 	TIMESTAMP sync(TIMESTAMP t0, TIMESTAMP t1);
 	TIMESTAMP postsync(TIMESTAMP t0, TIMESTAMP t1);
 	void removeLoads(VALINDEXARRAY array[], int length, double *sumLoads);
+	void merge_sort_VALINDEXARRAY(VALINDEXARRAY arr[], int left, int right);
+	void merge_VALINDEXARRAY(VALINDEXARRAY arr[], int left, int middle, int right);
 	int find(VALINDEXARRAY arr[], int len, double seek);
 
 	FINDLIST *capacitors, *fuses, *reclosers, *regulators, *sectionalizers;

@@ -42,6 +42,12 @@ public:
 	enum {LC_UNKNOWN=0, LC_RESIDENTIAL, LC_COMMERCIAL, LC_INDUSTRIAL, LC_AGRICULTURAL};
 	enumeration load_class;
 
+	// properties related to load shedding
+	enum {DISCRETIONARY=0, PRIORITY, CRITICAL};
+	enumeration load_priority;
+	bool load_shedding;
+
+
 	int create(void);
 	int init(OBJECT *parent);
 	

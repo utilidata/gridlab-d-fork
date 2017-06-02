@@ -73,10 +73,11 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 	VALINDEXARRAY *desLoad_real_power_array= NULL;
 	VALINDEXARRAY *criLoad_real_power_array = NULL;
 	VALINDEXARRAY *priLoad_real_power_array = NULL;
-	PROPERTY* GFAproperty;
-	bool *GFAenabled;
+	PROPERTY* loadShedPproperty;
+	bool *loadshed;
 	double *pLoad = NULL;
 	double sumLoads = 0;
+	enumeration *pLoadPriority;
 
 	if (prev_NTime==0)	//First run for assigning values from controlled device to the resilCoord controller
 	{
@@ -154,15 +155,20 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 					if(index >= loads->hit_count){
 						break;
 					}
-					if (strcmp(obj->groupid, "descriptiveload") == 0) {
+					pLoadPriority = gl_get_enum_by_name(obj, "load_priority");
+					if(pLoadPriority == 0){
+						gl_error("%s property load_priority is not published", obj->name);
+						return TS_NEVER;
+					}
+					if (*pLoadPriority == 0) {
 						pDesLoadObjects[numDesLoad] = obj;
 						numDesLoad++;
 					}
-					else if (strcmp(obj->groupid, "priority") == 0) {
+					else if (*pLoadPriority == 1) {
 						pPriLoadObjects[numPriLoad] = obj;
 						numPriLoad++;
 					}
-					else if (strcmp(obj->groupid, "critical") == 0) {
+					else if (*pLoadPriority == 2) {
 						pCriLoadObjects[numCriLoad] = obj;
 						numCriLoad++;
 					}
@@ -181,15 +187,20 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 					if(index >= triplex_loads->hit_count){
 						break;
 					}
-					if (strcmp(obj->groupid, "descriptiveload") == 0) {
+					pLoadPriority = gl_get_enum_by_name(obj, "load_priority");
+					if(pLoadPriority == 0){
+						gl_error("%s property load_priority is not published", obj->name);
+						return TS_NEVER;
+					}
+					if (*pLoadPriority == 0) {
 						pDesLoadObjects[numDesLoad] = obj;
 						numDesLoad++;
 					}
-					else if (strcmp(obj->groupid, "priority") == 0) {
+					else if (*pLoadPriority == 1) {
 						pPriLoadObjects[numPriLoad] = obj;
 						numPriLoad++;
 					}
-					else if (strcmp(obj->groupid, "critical") == 0) {
+					else if (*pLoadPriority == 2) {
 						pCriLoadObjects[numCriLoad] = obj;
 						numCriLoad++;
 					}
@@ -265,27 +276,23 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 	// Control loads when load shedding is required
 	if (loadClassify && loadshed_time <= t0) {
 //	if (loadClassify && loadShed) {
-		// Need to loop through each classified group of loads, and remove the loads until reaching the total amount required
+		// Need to loop through each classified load_priority of loads, and remove the loads until reaching the total amount required
 		// Allocate real power array for the three groups of loads
 		desLoad_real_power_array = (VALINDEXARRAY *)gl_malloc(numDesLoad*sizeof(VALINDEXARRAY));
 		criLoad_real_power_array = (VALINDEXARRAY *)gl_malloc(numCriLoad*sizeof(VALINDEXARRAY));
 		priLoad_real_power_array = (VALINDEXARRAY *)gl_malloc(numPriLoad*sizeof(VALINDEXARRAY));
 
-		// Loop through descriptive group of loads
+		// Loop through discretionary group of loads
 		for (int i = 0; i < numDesLoad; i++) {
 			pLoad = gl_get_double_by_name(pDesLoadObjects[i]->parent, "measured_real_power");
 			desLoad_real_power_array[i].vals = *pLoad;
 			desLoad_real_power_array[i].index = i;
-			// Enable GFA control
-			GFAproperty = gl_get_property(pDesLoadObjects[i], "GFA_enable");
-			GFAenabled = gl_get_bool(pDesLoadObjects[i], GFAproperty);
-			if (*GFAenabled == false) {
-				*GFAenabled = true;
-			}
 		}
 
 		// Call function to remove the loads
-		removeLoads(desLoad_real_power_array, numDesLoad, &sumLoads);
+		if (numDesLoad > 0) {
+			removeLoads(desLoad_real_power_array, numDesLoad, &sumLoads);
+		}
 
 		// Loop through priority group of loads if total removed load amount has not been reached
 		if (sumLoads < loadShedAmount) {
@@ -293,17 +300,12 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 				pLoad = gl_get_double_by_name(pPriLoadObjects[i]->parent, "measured_real_power");
 				priLoad_real_power_array[i].vals = *pLoad;
 				priLoad_real_power_array[i].index = i;
-				// Enable GFA control
-				GFAproperty = gl_get_property(pPriLoadObjects[i], "GFA_enable");
-				GFAenabled = gl_get_bool(pPriLoadObjects[i], GFAproperty);
-				if (*GFAenabled == false) {
-					*GFAenabled = true;
-				}
 			}
 
 			// Call function to remove the loads
-			removeLoads(priLoad_real_power_array, numPriLoad, &sumLoads);
-
+			if (numPriLoad > 0) {
+				removeLoads(priLoad_real_power_array, numPriLoad, &sumLoads);
+			}
 		}
 
 		// Loop through critical group of loads if total removed load amount has not been reached
@@ -312,16 +314,12 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 				pLoad = gl_get_double_by_name(pCriLoadObjects[i]->parent, "measured_real_power");
 				criLoad_real_power_array[i].vals = *pLoad;
 				criLoad_real_power_array[i].index = i;
-				// Enable GFA control
-				GFAproperty = gl_get_property(pCriLoadObjects[i], "GFA_enable");
-				GFAenabled = gl_get_bool(pCriLoadObjects[i], GFAproperty);
-				if (*GFAenabled == false) {
-					*GFAenabled = true;
-				}
 			}
 
 			// Call function to remove the loads
-			removeLoads(criLoad_real_power_array, numCriLoad, &sumLoads);
+			if (numCriLoad > 0) {
+				removeLoads(criLoad_real_power_array, numCriLoad, &sumLoads);
+			}
 		}
 	}
 
@@ -359,11 +357,12 @@ int resilCoord::isa(char *classname)
 void resilCoord::removeLoads(VALINDEXARRAY array[], int length, double *sumLoads)
 {
 	int index = 0;
-	PROPERTY* GFAproperty;
-	bool *GFAstatus;
+	PROPERTY* loadShedproperty;
+	bool *loadShed;
 
 	// Sort the array using qsort function in c
-	qsort(array, length, sizeof(array[0]), compare_structs);
+//	qsort(array, length, sizeof(array[0]), compare_structs);
+	merge_sort_VALINDEXARRAY(array, 0, length-1); // use our own sort function here rather than qsort
 
 	// Obtain the index of the value that not less than sumLoads
 	index = find(array, length, loadShedAmount);
@@ -374,9 +373,9 @@ void resilCoord::removeLoads(VALINDEXARRAY array[], int length, double *sumLoads
 		// Then directly remove the smallest of the array
 		*sumLoads += array[0].vals;
 		// Remove load
-		GFAproperty = gl_get_property(pDesLoadObjects[array[0].index], "GFA_status");
-		GFAstatus = gl_get_bool(pDesLoadObjects[array[0].index], GFAproperty);
-		*GFAstatus = false;
+		loadShedproperty = gl_get_property(pDesLoadObjects[array[0].index], "load_shedding");
+		loadShed = gl_get_bool(pDesLoadObjects[array[0].index], loadShedproperty);
+		*loadShed = true;
 	}
 
 	while (index >= 0) {
@@ -388,9 +387,9 @@ void resilCoord::removeLoads(VALINDEXARRAY array[], int length, double *sumLoads
 		*sumLoads += array[index].vals;
 
 		// Remove the corresponding load
-		GFAproperty = gl_get_property(pDesLoadObjects[array[index].index], "GFA_status");
-		GFAstatus = gl_get_bool(pDesLoadObjects[array[index].index], GFAproperty);
-		*GFAstatus = false;
+		loadShedproperty = gl_get_property(pDesLoadObjects[array[index].index], "load_shedding");
+		loadShed = gl_get_bool(pDesLoadObjects[array[index].index], loadShedproperty);
+		*loadShed = true;
 
 		// go to the next iterator
 		index--;
@@ -408,6 +407,64 @@ int compare_structs(const void *a, const void *b)
     else if (struct_a->vals == struct_b->vals) return 0;
     else return 1;
 
+}
+
+void resilCoord::merge_sort_VALINDEXARRAY(VALINDEXARRAY arr[], int left, int right)
+{
+	if (left < right) {
+		int middle = left + (right - left) / 2;
+		merge_sort_VALINDEXARRAY(arr, left, middle);
+		merge_sort_VALINDEXARRAY(arr, middle + 1, right);
+		merge_VALINDEXARRAY(arr, left, middle, right);
+	}
+}
+
+void resilCoord::merge_VALINDEXARRAY(VALINDEXARRAY arr[], int left, int middle, int right)
+{
+	// Initialization
+	int i, j, k;
+	VALINDEXARRAY *left_array = NULL;
+	VALINDEXARRAY *right_array = NULL;
+
+	// Calculate left and right array length
+	int left_length = middle - left + 1;
+	int right_length = right - middle;
+
+	// Copy left and right array
+	left_array = (VALINDEXARRAY *)gl_malloc(left_length*sizeof(VALINDEXARRAY));
+	right_array = (VALINDEXARRAY *)gl_malloc(right_length*sizeof(VALINDEXARRAY));
+	for (i = 0; i < left_length; i++) {
+		left_array[i] = arr[left + i];
+	}
+	for (j = 0; j < right_length; j++) {
+		right_array[j] = arr[middle + 1 + j];
+	}
+
+	// merge
+	i = 0;
+	j = 0;
+	k = left;
+	while (i < left_length && j < right_length) {
+		if (left_array[i].vals < right_array[j].vals){
+			arr[k] = left_array[i];
+			i++;
+		}
+		else {
+			arr[k] = right_array[j];
+			j++;
+		}
+		k++;
+	}
+	while (i < left_length){
+		arr[k] = left_array[i];
+		i++;
+		k++;
+	}
+	while (j < right_length){
+		arr[k] = right_array[j];
+		j++;
+		k++;
+	}
 }
 
 int resilCoord::find(VALINDEXARRAY arr[], int len, double seek)
