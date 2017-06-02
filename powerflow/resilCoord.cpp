@@ -78,6 +78,8 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 	double *pLoad = NULL;
 	double sumLoads = 0;
 	enumeration *pLoadPriority;
+	bool *loadCom;
+	PROPERTY* loadComProperty;
 
 	if (prev_NTime==0)	//First run for assigning values from controlled device to the resilCoord controller
 	{
@@ -192,17 +194,23 @@ TIMESTAMP resilCoord::presync(TIMESTAMP t0, TIMESTAMP t1)
 						gl_error("%s property load_priority is not published", obj->name);
 						return TS_NEVER;
 					}
-					if (*pLoadPriority == 0) {
-						pDesLoadObjects[numDesLoad] = obj;
-						numDesLoad++;
-					}
-					else if (*pLoadPriority == 1) {
-						pPriLoadObjects[numPriLoad] = obj;
-						numPriLoad++;
-					}
-					else if (*pLoadPriority == 2) {
-						pCriLoadObjects[numCriLoad] = obj;
-						numCriLoad++;
+					// Also check if the load communication is enabled or not
+					loadComProperty = gl_get_property(obj, "load_communication_enable");
+					loadCom = gl_get_bool(obj, loadComProperty);
+					// If loadCom is true, then assign
+					if (*loadCom == true) {
+						if (*pLoadPriority == 0) {
+							pDesLoadObjects[numDesLoad] = obj;
+							numDesLoad++;
+						}
+						else if (*pLoadPriority == 1) {
+							pPriLoadObjects[numPriLoad] = obj;
+							numPriLoad++;
+						}
+						else if (*pLoadPriority == 2) {
+							pCriLoadObjects[numCriLoad] = obj;
+							numCriLoad++;
+						}
 					}
 
 					++index;

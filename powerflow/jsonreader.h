@@ -76,6 +76,9 @@ private:
 	regINPUT *regRDT;
 	int numReg;
 
+	// load related parameters
+	int numLoad;
+
 	char* convert2LowerCase(char *sPtr);
 	char* convert2UpperCase(char *sPtr);
 

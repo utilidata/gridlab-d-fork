@@ -45,6 +45,7 @@ public:
 	// properties related to load shedding
 	enum {DISCRETIONARY=0, PRIORITY, CRITICAL};
 	enumeration load_priority;
+	bool load_communication_enable;
 	bool load_shedding;
 
 

@@ -58,6 +58,9 @@ int jsonreader::init(OBJECT *parent)
 	bool val_Unit_bool;
 	char* keyVal;
 	char* valUnit;
+	OBJECT* loadobj;
+	bool *loadCom;
+	PROPERTY* loadComProperty;
 
 	if(filename[0] == '\0'){
 		gl_error("No filename was specified. Unable to open file for righting.");
@@ -77,8 +80,7 @@ int jsonreader::init(OBJECT *parent)
     // Obtain protective devices objects:
     const Json::Value& characters_Protect = objTest["Protective device"]; // array of characters for protective device object
     if(characters_Protect.size() < 1){
-		gl_error("No protective device value was given in RDT JSON input file. Unable to change the default protective device values.");
-		return 0;
+    	gl_warning("No protective device value was given in RDT JSON input file. Unable to change the default protective device values.");
     }
 
     // Obtain recloser objects:
@@ -395,7 +397,7 @@ int jsonreader::init(OBJECT *parent)
     // Obtain other objects such as capacitors or regulators:
 	const Json::Value& characters_Others = objTest["Other devices"]; // array of characters for capacitor and regulator object
 	if(characters_Others.size() < 1){
-		gl_warning("No regulator or capacitor value was given in RDT JSON input file. Unable to change the default device values.");
+		gl_warning("No regulator or capacitor or load value was given in RDT JSON input file. Unable to change the default device values.");
 	}
 
 	// Obtain regulator objects:
@@ -791,6 +793,44 @@ int jsonreader::init(OBJECT *parent)
 
 
 	}
+
+	// Obtain load objects:
+	Json::Value loadObj = objTest["Other devices"]["Load"];
+	numLoad = loadObj.size();
+	// Loop through all regulator objects given
+	i = 0;
+	for (Json::Value::iterator it = loadObj.begin(); it != loadObj.end(); ++it) {
+		// Get load object by name
+		val_Unit = (*it)["Name"].asCString();
+		loadobj = gl_get_object(val_Unit);
+		// Assign communication status to load object
+		if (loadobj != NULL) {
+			loadComProperty = gl_get_property(loadobj, "load_communication_enable");
+			loadCom = gl_get_bool(loadobj, loadComProperty);
+			if (!(*it)["Device communication status"].isNull()) {
+				val_Unit = (*it)["Device communication status"].asCString();
+				buf = convert2LowerCase(val_Unit);
+				if (strcmp(buf,"true") == 0) {
+					*loadCom = true;
+				}
+				else if (strcmp(buf,"false") == 0) {
+					*loadCom = false;
+				}
+				else {
+					gl_error("Load device communication status is not given as true or false");
+					return 0;
+				}
+			}
+		}
+		else {
+			GL_THROW("jsonreader: did not find the object with name %s",(*it)["Name"].asCString());
+			/*  TROUBLESHOOT
+			While attempting to populate the load object with the name given in JSON input file, it somehow
+			failed to recognize this was a valid object.  Please check if this load exsist in the feeder.
+			*/
+		}
+	}
+
 
     // Set rank as the highest (same as swing bus) so that syncs can be executed before all other classes
 	OBJECT *obj = OBJECTHDR(this);

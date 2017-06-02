@@ -44,6 +44,7 @@ load::load(MODULE *mod) : node(mod)
 				PT_KEYWORD, "PRIORITY", (enumeration)PRIORITY,
 				PT_KEYWORD, "CRITICAL", (enumeration)CRITICAL,
 			PT_bool, "load_shedding", PADDR(load_shedding), PT_DESCRIPTION, "Boolean value indicating whether load is to be shed; default is false",
+			PT_bool, "load_communication_enable", PADDR(load_communication_enable), PT_DESCRIPTION, "Boolean value indicating whether load communication status is enabled; default is false",
 			PT_complex, "constant_power_A[VA]", PADDR(constant_power[0]),PT_DESCRIPTION,"constant power load on phase A, specified as VA",
 			PT_complex, "constant_power_B[VA]", PADDR(constant_power[1]),PT_DESCRIPTION,"constant power load on phase B, specified as VA",
 			PT_complex, "constant_power_C[VA]", PADDR(constant_power[2]),PT_DESCRIPTION,"constant power load on phase C, specified as VA",
@@ -213,6 +214,7 @@ int load::create(void)
 	prev_shunt[0] = prev_shunt[1] = prev_shunt[2] = complex(0.0,0.0);
 
 	//Load shedding property
+	load_communication_enable = false;
 	load_shedding = false;
 
     return res;
