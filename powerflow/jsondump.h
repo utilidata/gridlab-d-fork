@@ -15,6 +15,7 @@
 #include "switch_object.h"
 #include "line_configuration.h"
 #include "triplex_line_configuration.h"
+#include "transformer.h"
 
 
 class jsondump : public gld_object
@@ -40,6 +41,7 @@ public:
 	line_configuration **pLineConf;
 	triplex_line_configuration **pTpLineConf;
 	capacitor **pCapacitor;
+	transformer **pTranformer;
 	TIMESTAMP runtime;
 	int32 runcount;
 	complex *node_voltage;
@@ -57,6 +59,7 @@ public:
 	int dump_line();
 	int dump_reliability();
 	complex *get_complex(OBJECT *obj, char *name);
+	void inverse(complex in[3][3], complex out[3][3]);
 };
 
 #endif // _jsondump_H

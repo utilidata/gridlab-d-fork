@@ -142,14 +142,25 @@ int recloser::init(OBJECT *parent)
 	t_close = 0;
 	Iseen[0] = Iseen[1] = Iseen[2] = 0;
 
-//	// Try double_array working or not
-//	unsigned int rowNum = fastTCC.get_rows();
-//	unsigned int colNum = fastTCC.get_cols();
-//	double *test = fastTCC.get_addr(0,0);
-//
-//	double_array* try_double_array = new double_array (2, 3);
-//	try_double_array->set_at(0, 0, 3.0);
-//	try_double_array->set_at(0, 1, 5.0);
+	// Try double_array working or not
+	unsigned int rowNum = fastTCC.get_rows();
+	unsigned int colNum = fastTCC.get_cols();
+	double *test = fastTCC.get_addr(0,0);
+//	fastTCC.grow_to(2, 10);
+//	fastTCC.set_at(0, 9, 10000);
+
+	double_array* try_double_array = new double_array (2, 3);
+	try_double_array->set_at(0, 0, 3.0);
+	try_double_array->set_at(0, 1, 5.0);
+	unsigned int rowNum1 = try_double_array->get_rows();
+	unsigned int colNum1 = try_double_array->get_cols();
+	try_double_array->grow_to(2,5);
+	try_double_array->set_at(0, 4, 10.0);
+	try_double_array->get_at(0, 0);
+	try_double_array->get_at(0, 4);
+	try_double_array->get_at(1, 1);
+
+
 
 
 	return result;

@@ -79,7 +79,7 @@ int jsondump::init(OBJECT *parent)
 
 int jsondump::dump_line()
 {
-	FINDLIST *ohlines, *tplines, *uglines, *lineConfs, *tpLineConfs;
+	FINDLIST *ohlines, *tplines, *uglines, *lineConfs, *tpLineConfs, *tpTransformers;
 	OBJECT *obj = NULL;
 	OBJECT *obj_lineConf = NULL;
 	OBJECT *obj_tplineConf = NULL;
@@ -90,6 +90,9 @@ int jsondump::dump_line()
 	char timestr[64];
 	PROPERTY *xfmrconfig;
 	int phaseCount;
+	complex b_mat_xfmr[3][3];//used to store transformer bmatrix
+	complex b_mat_xfmr_inv[3][3];//used to store transformer bmatrix inverse
+
 	// metrics JSON value
 	Json::Value metrics_lines;	// Output dictionary for line and line configuration metrics
 	Json::Value line_object;
@@ -108,15 +111,15 @@ int jsondump::dump_line()
 		tplines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line",FT_END);				//find all triplex_lines
 		uglines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"underground_line",FT_END);			//find all underground_lines
 		lineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"line_configuration",FT_END);			//find all line configurations
-		tpLineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line_configuration",FT_END);			//find all triplex line configurations
-
+		tpLineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line_configuration",FT_END);//find all triplex line configurations
+		tpTransformers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"transformer",FT_END);			//find all transformers
 	} else {
 		ohlines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"overhead_line",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
 		tplines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
 		uglines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"underground_line",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
 		lineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"line_configuration",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
 		tpLineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line_configuration",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
-
+		tpTransformers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"transformer",AND,FT_GROUPID,SAME,group.get_string(),FT_END);
 	}
 	if(ohlines == NULL && tplines == NULL && uglines == NULL){
 		gl_error("No line objects were found.");
@@ -157,6 +160,93 @@ int jsondump::dump_line()
 		index++;
 	}
 
+	//write transformers
+	index = 0;
+	if(tpTransformers != NULL){
+		pTranformer = (transformer **)gl_malloc(tpTransformers->hit_count*sizeof(transformer*));
+		if(pTranformer == NULL){
+			gl_error("Failed to allocate transformer array.");
+			return TS_NEVER;
+		}
+		while(obj = gl_find_next(tpTransformers,obj)){
+			if(index >= tpTransformers->hit_count){
+				break;
+			}
+			pTranformer[index] = OBJECTDATA(obj,transformer);
+			if(pTranformer[index] == NULL){
+				gl_error("Unable to map object as transformer object.");
+				return 0;
+			}
+
+			//write the transformer impedance
+			// Write the name (not id)
+			line_object["id"] = obj->name;
+
+			//write is_transformer
+			line_object["is_transformer"] = "true";
+
+			//write the num_phases
+			phaseCount = 0;
+			if(pTranformer[index]->has_phase(PHASE_A)){
+				phaseCount++;
+			}
+			if(pTranformer[index]->has_phase(PHASE_B)){
+				phaseCount++;
+			}
+			if(pTranformer[index]->has_phase(PHASE_C)){
+				phaseCount++;
+			}
+			if(phaseCount != 0){
+				line_object["num_phases"] = phaseCount;
+			} else {
+				gl_error("No phase found");
+				return 0;
+			}
+
+			//write line phases as boolean values
+			sprintf(buffer, "[%s, %s, %s]", (pTranformer[index]->has_phase(PHASE_A)? "true":"false"),(pTranformer[index]->has_phase(PHASE_B)? "true":"false"), (pTranformer[index]->has_phase(PHASE_C)? "true":"false"));
+			line_object["has_phase"] = buffer;
+
+			// Obtain inverse of b_mat matrix
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					b_mat_xfmr[m][n] = pTranformer[index]->b_mat[m][n];
+				}
+			}
+
+			inverse(b_mat_xfmr,b_mat_xfmr_inv);
+
+			// write rmatrix
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_xfmr_inv[m][n].Re());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
+			}
+			line_object["rmatrix"] = jsonArray2;
+			jsonArray2.clear();
+
+			//write xmatrix
+			for (int m = 0; m < 3; m++) {
+				for (int n = 0; n < 3; n++) {
+					jsonArray1.append(b_mat_xfmr_inv[m][n].Im());
+				}
+				jsonArray2.append(jsonArray1);
+				jsonArray1.clear();
+			}
+			line_object["xmatrix"] = jsonArray2;
+			jsonArray2.clear();
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
+			index++;
+		}
+	}
 
 	//write the overhead_lines
 	index = 0;
@@ -954,6 +1044,26 @@ complex * jsondump::get_complex(OBJECT *obj, char *name)
 	if (p==NULL || p->ptype!=PT_complex)
 		return NULL;
 	return (complex*)GETADDR(obj,p);
+}
+
+void jsondump::inverse(complex in[3][3], complex out[3][3])
+{
+	complex x = complex(1.0) / (in[0][0] * in[1][1] * in[2][2] -
+                               in[0][0] * in[1][2] * in[2][1] -
+                               in[0][1] * in[1][0] * in[2][2] +
+                               in[0][1] * in[1][2] * in[2][0] +
+                               in[0][2] * in[1][0] * in[2][1] -
+                               in[0][2] * in[1][1] * in[2][0]);
+
+	out[0][0] = x * (in[1][1] * in[2][2] - in[1][2] * in[2][1]);
+	out[0][1] = x * (in[0][2] * in[2][1] - in[0][1] * in[2][2]);
+	out[0][2] = x * (in[0][1] * in[1][2] - in[0][2] * in[1][1]);
+	out[1][0] = x * (in[1][2] * in[2][0] - in[1][0] * in[2][2]);
+	out[1][1] = x * (in[0][0] * in[2][2] - in[0][2] * in[2][0]);
+	out[1][2] = x * (in[0][2] * in[1][0] - in[0][0] * in[1][2]);
+	out[2][0] = x * (in[1][0] * in[2][1] - in[1][1] * in[2][0]);
+	out[2][1] = x * (in[0][1] * in[2][0] - in[0][0] * in[2][1]);
+	out[2][2] = x * (in[0][0] * in[1][1] - in[0][1] * in[1][0]);
 }
 
 //////////////////////////////////////////////////////////////////////////
