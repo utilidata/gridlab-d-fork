@@ -836,7 +836,7 @@ void overhead_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance11 == 0.0)
 		{
-			condCheck = (config->phaseA_conductor && !gl_object_isa(config->phaseA_conductor, "overhead_line_conductor"));
+			condCheck = (config->phaseA_conductor && !gl_object_isa(config->phaseA_conductor, "overhead_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseA_conductor) && has_phase(PHASE_A));
 		}
 		else
@@ -849,7 +849,7 @@ void overhead_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance22 == 0.0)
 		{
-			condCheck = (config->phaseB_conductor && !gl_object_isa(config->phaseB_conductor, "overhead_line_conductor"));
+			condCheck = (config->phaseB_conductor && !gl_object_isa(config->phaseB_conductor, "overhead_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseB_conductor) && has_phase(PHASE_B));
 		}
 		else
@@ -862,7 +862,7 @@ void overhead_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance33 == 0.0)
 		{
-			condCheck = (config->phaseC_conductor && !gl_object_isa(config->phaseC_conductor, "overhead_line_conductor"));
+			condCheck = (config->phaseC_conductor && !gl_object_isa(config->phaseC_conductor, "overhead_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseC_conductor) && has_phase(PHASE_C));
 		}
 		else
@@ -875,7 +875,7 @@ void overhead_line::test_phases(line_configuration *config, const char ph)
 	{
 		if (config->impedance11 == 0.0 && config->impedance22 == 0.0 && config->impedance33 == 0.0)
 		{
-			condCheck = (config->phaseN_conductor && !gl_object_isa(config->phaseN_conductor, "overhead_line_conductor"));
+			condCheck = (config->phaseN_conductor && !gl_object_isa(config->phaseN_conductor, "overhead_line_conductor","powerflow"));
 			condNotPres = ((!config->phaseN_conductor) && has_phase(PHASE_N));
 		}
 		else

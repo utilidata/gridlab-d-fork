@@ -47,6 +47,8 @@ typedef struct  {
 	double max_volt_error;	///< Maximum voltage error specified for that node
 	char *name;				///< original name
 	OBJECT *obj;			///< Link to original object header
+	FUNCTIONADDR ExtraCurrentInjFunc;	///< Link to extra functions of current injection updates -- mostly VSI current updates
+	OBJECT *ExtraCurrentInjFuncObject;	///< Link to the object that mapped the current injection function - needed for function calls
 } BUSDATA;
 
 typedef struct {
@@ -147,5 +149,6 @@ typedef struct {
 //void ext_solver_destroy(void *ext_array, bool new_iteration);
 
 int64 solver_nr(unsigned int bus_count, BUSDATA *bus, unsigned int branch_count, BRANCHDATA *branch, NR_SOLVER_STRUCT *powerflow_values, NRSOLVERMODE powerflow_type , NR_MESHFAULT_IMPEDANCE *mesh_imped_vals, bool *bad_computations);
+void compute_load_values(unsigned int bus_count, BUSDATA *bus, NR_SOLVER_STRUCT *powerflow_values, bool jacobian_pass);
 
 #endif

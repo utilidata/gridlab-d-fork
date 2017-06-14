@@ -320,9 +320,12 @@ int fuse::init(OBJECT *parent)
 	//Check trip rating
 	if (Itrip <= 0.0)
 	{
-		GL_THROW("fuse:%s has not been given a trip current rating!",obj->name);
+		Itrip = 9999.0;	//Set to arbitrary large value
+
+		gl_warning("fuse:%s did not have a trip current rating - set to 9999.9 Amps",(obj->name ? obj->name : "Unnamed"));
 		/*  TROUBLESHOOT
-		Please specify a positive value for the trip_current and try again.
+		A fuse had an Itrip value not set correctly.  This would cause problems, so a placeholder value of
+		9999.0 Amps is used.  Please adjust this value accordingly.
 		*/
 	}
 

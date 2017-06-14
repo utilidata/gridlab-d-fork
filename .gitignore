@@ -98,7 +98,10 @@ gldcore/config.h.in~
 gridlabd.bin
 install64/
 install/
+install64/
 */autotest/*/
 */*/*/autotest/*/
 validate.txt
 .libs/
+third_party/xerces*/*
+*.xcbkptlist

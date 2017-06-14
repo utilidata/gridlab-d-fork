@@ -2,6 +2,7 @@ pkglib_LTLIBRARIES += powerflow/powerflow.la
 
 powerflow_powerflow_la_CPPFLAGS =
 powerflow_powerflow_la_CPPFLAGS += -I$(top_srcdir)/third_party/superLU_MT
+powerflow_powerflow_la_CPPFLAGS += -I$(top_srcdir)/third_party/jsonCpp
 powerflow_powerflow_la_CPPFLAGS += $(AM_CPPFLAGS)
 
 powerflow_powerflow_la_LDFLAGS =
@@ -9,6 +10,7 @@ powerflow_powerflow_la_LDFLAGS += $(AM_LDFLAGS)
 powerflow_powerflow_la_LDFLAGS += -ldl
 
 powerflow_powerflow_la_LIBADD =
+powerflow_powerflow_la_LIBADD += third_party/jsonCpp/libjsoncpp.la
 powerflow_powerflow_la_LIBADD += third_party/superLU_MT/libsuperlu.la
 powerflow_powerflow_la_LIBADD += $(PTHREAD_CFLAGS)
 powerflow_powerflow_la_LIBADD += $(PTHREAD_LIBS)
@@ -35,9 +37,6 @@ powerflow_powerflow_la_SOURCES += powerflow/jsondump.cpp
 powerflow_powerflow_la_SOURCES += powerflow/jsondump.h
 powerflow_powerflow_la_SOURCES += powerflow/jsonreader.cpp
 powerflow_powerflow_la_SOURCES += powerflow/jsonreader.h
-powerflow_powerflow_la_SOURCES += powerflow/jsoncpp.cpp
-powerflow_powerflow_la_SOURCES += powerflow/json/json.h
-powerflow_powerflow_la_SOURCES += powerflow/json/json-forwards.h
 powerflow_powerflow_la_SOURCES += powerflow/init.cpp
 powerflow_powerflow_la_SOURCES += powerflow/line_configuration.cpp
 powerflow_powerflow_la_SOURCES += powerflow/line_configuration.h
@@ -118,6 +117,8 @@ powerflow_powerflow_la_SOURCES += powerflow/underground_line_conductor.h
 powerflow_powerflow_la_SOURCES += powerflow/underground_line.cpp
 powerflow_powerflow_la_SOURCES += powerflow/underground_line.h
 powerflow_powerflow_la_SOURCES += powerflow/undergroundline_test.h
+powerflow_powerflow_la_SOURCES += powerflow/vfd.cpp
+powerflow_powerflow_la_SOURCES += powerflow/vfd.h
 powerflow_powerflow_la_SOURCES += powerflow/voltdump.cpp
 powerflow_powerflow_la_SOURCES += powerflow/voltdump.h
 powerflow_powerflow_la_SOURCES += powerflow/volt_var_control.cpp

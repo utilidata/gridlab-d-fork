@@ -93,6 +93,8 @@
 #include <math.h>
 #include "link.h"
 #include "node.h"
+
+//More stuff to try and separate when time permits
 #include "meter.h"
 #include "regulator.h"
 #include "triplex_meter.h"
@@ -291,6 +293,16 @@ int link_object::init(OBJECT *parent)
 		*/
 
 		mean_repair_time = 0.0;	//Set to zero by default
+	}
+
+	//Make sure they don't match -- odd test, but still needs to be done
+	if (from == to)
+	{
+		GL_THROW("link:%d - %s - FROM and TO objects are the same object!",obj->id,(obj->name ? obj->name : "Unnamed"));
+		/*  TROUBLESHOOT
+		The from-node and to-node of a link are the same object. This is effectively a loop-back on itself and is not allowed.
+		Please choose a different from or to node.
+		*/
 	}
 
 	/* adjust ranks according to method in use */
@@ -1618,14 +1630,20 @@ void link_object::NR_link_presync_fxn(void)
 				Y[jindex][kindex] = 0.0;
 
 		// compute admittance - invert b matrix - special circumstances given different methods
-		if ((SpecialLnk!=NORMAL) && (SpecialLnk!=SPLITPHASE))
+		if ((SpecialLnk!=NORMAL) && (SpecialLnk!=SPLITPHASE) && (SpecialLnk!=VFD))
 		{
 			;	//Just skip over all of this nonsense
 		}
 		else if (has_phase(PHASE_S)) //Triplexy
 		{
-			//Put it straight in
-			equalm(b_mat,Y);
+			//Find the determinant
+			complex detvalue = b_mat[0][0]*b_mat[1][1] - b_mat[0][1]*b_mat[1][0];
+
+			//Store the value/compute the inversion
+			Y[0][0] = b_mat[1][1] / detvalue;
+			Y[0][1] = b_mat[0][1] * -1.0 / detvalue;
+			Y[1][0] = b_mat[1][0] * -1.0 / detvalue;
+			Y[1][1] = b_mat[0][0] / detvalue;
 		}
 		else if ((SpecialLnk==NORMAL) && (require_inrush_update == true))
 		{
@@ -1782,7 +1800,7 @@ void link_object::NR_link_presync_fxn(void)
 					*/
 								
 			}
-			else if ((SpecialLnk==SWITCH) || (SpecialLnk==REGULATOR))
+			else if ((SpecialLnk==SWITCH) || (SpecialLnk==REGULATOR) || (SpecialLnk==VFD))
 			{
 				;	//More nothingness (all handled inside switch/regulator itself)
 			}
@@ -1959,103 +1977,120 @@ void link_object::NR_link_presync_fxn(void)
 
 			if (use_line_cap == true)	//Capacitance included
 			{
-				//Make "transfer matrices" admittance-less
-				equalm(Y,From_Y);
-				
-				//Zero out Y first, just in case - mainly if something above used it
-				for (jindex=0; jindex<3; jindex++)
+				if (has_phase(PHASE_S))	//Triplex exclusion
 				{
-					for (kindex=0; kindex<3; kindex++)
-					{
-						Y[jindex][kindex]=complex(0.0,0.0);
-					}
-				}
+					//Just copy the output directly in
+					equalm(Y,From_Y);
 
-				//Replicate the inversion, again, but with the "less modified" version - Stored from Yc=b_mat earlier
-				//Inversion sequence to get Y (admittance)
-				if (has_phase(PHASE_A) && !has_phase(PHASE_B) && !has_phase(PHASE_C)) //only A
-					Y[0][0] = complex(1.0) / b_mat[0][0];
-				else if (!has_phase(PHASE_A) && has_phase(PHASE_B) && !has_phase(PHASE_C)) //only B
-					Y[1][1] = complex(1.0) / b_mat[1][1];
-				else if (!has_phase(PHASE_A) && !has_phase(PHASE_B) && has_phase(PHASE_C)) //only C
-					Y[2][2] = complex(1.0) / b_mat[2][2];
-				else if (has_phase(PHASE_A) && !has_phase(PHASE_B) && has_phase(PHASE_C)) //has A & C
-				{
-					complex detvalue = b_mat[0][0]*b_mat[2][2] - b_mat[0][2]*b_mat[2][0];
-
-					Y[0][0] = b_mat[2][2] / detvalue;
-					Y[0][2] = b_mat[0][2] * -1.0 / detvalue;
-					Y[2][0] = b_mat[2][0] * -1.0 / detvalue;
-					Y[2][2] = b_mat[0][0] / detvalue;
-				}
-				else if (has_phase(PHASE_A) && has_phase(PHASE_B) && !has_phase(PHASE_C)) //has A & B
-				{
-					complex detvalue = b_mat[0][0]*b_mat[1][1] - b_mat[0][1]*b_mat[1][0];
-
-					Y[0][0] = b_mat[1][1] / detvalue;
-					Y[0][1] = b_mat[0][1] * -1.0 / detvalue;
-					Y[1][0] = b_mat[1][0] * -1.0 / detvalue;
-					Y[1][1] = b_mat[0][0] / detvalue;
-				}
-				else if (!has_phase(PHASE_A) && has_phase(PHASE_B) && has_phase(PHASE_C))	//has B & C
-				{
-					complex detvalue = b_mat[1][1]*b_mat[2][2] - b_mat[1][2]*b_mat[2][1];
-
-					Y[1][1] = b_mat[2][2] / detvalue;
-					Y[1][2] = b_mat[1][2] * -1.0 / detvalue;
-					Y[2][1] = b_mat[2][1] * -1.0 / detvalue;
-					Y[2][2] = b_mat[1][1] / detvalue;
-				}
-				else if ((has_phase(PHASE_A) && has_phase(PHASE_B) && has_phase(PHASE_C)) || (has_phase(PHASE_D))) //has ABC or D (D=ABC)
-					inverse(b_mat,Y);
-
-				//Compute total self admittance - include line charging capacitance
-				//Basically undo a_mat = I + 1/2 Zabc*Yabc
-				equalm(a_mat,Ylinecharge);
-				Ylinecharge[0][0]-=1;
-				Ylinecharge[1][1]-=1;
-				Ylinecharge[2][2]-=1;
-				multiply(2.0,Ylinecharge,Ylefttemp);
-				multiply(Y,Ylefttemp,Ylinecharge);
-				
-				//Split back in half for application to each side
-				multiply(0.5,Ylinecharge,Ylefttemp);
-
-				//See how this is being handled
-				if ((enable_inrush_calculations == true) && (require_inrush_update == true))
-				{
-					//Update constant terms - shunt is the same for capacitance
+					//Do the same for the "shunt" term, even though it is the same here
 					for (jindex=0; jindex<3; jindex++)
 					{
 						for (kindex=0; kindex<3; kindex++)
 						{
-							//Extract the imaginary part (should be only part) and de-phasor it - Yshunt/(2*pi*f)*2/dt
-							workingvalue = Ylefttemp[jindex][kindex].Im() / (PI * current_frequency * deltatimestep_running);
-
-							//Put into the "shunt" matrix
-							Ylefttemp[jindex][kindex] += complex(workingvalue,0.0);
-
-							//Copy this value into the final storage matrix too
-							LinkCapShuntTerm[jindex*3+kindex] = Ylefttemp[jindex][kindex];
-
-							//Create chrcstore while we're in here
-							chrcstore[jindex*3+kindex] = 2.0 * workingvalue;
+							YSfrom[jindex*3+kindex]=Y[jindex][kindex];
 						}
 					}
-				}
-				//Defaulted else -- In-rush not enabled, just continue like normal
-
-				//Combine back into the full shunt term
-				addition(Ylefttemp,From_Y,Yc);
-
-				//Now parse into the new storage structure (manual to ensure things are placed right)
-				for (jindex=0; jindex<3; jindex++)
+				}//End triplex capacitance code
+				else	//Other lines
 				{
-					for (kindex=0; kindex<3; kindex++)
+					//Make "transfer matrices" admittance-less
+					equalm(Y,From_Y);
+
+					//Zero out Y first, just in case - mainly if something above used it
+					for (jindex=0; jindex<3; jindex++)
 					{
-						YSfrom[jindex*3+kindex]=Yc[jindex][kindex];
+						for (kindex=0; kindex<3; kindex++)
+						{
+							Y[jindex][kindex]=complex(0.0,0.0);
+						}
 					}
-				}
+
+					//Replicate the inversion, again, but with the "less modified" version - Stored from Yc=b_mat earlier
+					//Inversion sequence to get Y (admittance)
+					if (has_phase(PHASE_A) && !has_phase(PHASE_B) && !has_phase(PHASE_C)) //only A
+						Y[0][0] = complex(1.0) / b_mat[0][0];
+					else if (!has_phase(PHASE_A) && has_phase(PHASE_B) && !has_phase(PHASE_C)) //only B
+						Y[1][1] = complex(1.0) / b_mat[1][1];
+					else if (!has_phase(PHASE_A) && !has_phase(PHASE_B) && has_phase(PHASE_C)) //only C
+						Y[2][2] = complex(1.0) / b_mat[2][2];
+					else if (has_phase(PHASE_A) && !has_phase(PHASE_B) && has_phase(PHASE_C)) //has A & C
+					{
+						complex detvalue = b_mat[0][0]*b_mat[2][2] - b_mat[0][2]*b_mat[2][0];
+
+						Y[0][0] = b_mat[2][2] / detvalue;
+						Y[0][2] = b_mat[0][2] * -1.0 / detvalue;
+						Y[2][0] = b_mat[2][0] * -1.0 / detvalue;
+						Y[2][2] = b_mat[0][0] / detvalue;
+					}
+					else if (has_phase(PHASE_A) && has_phase(PHASE_B) && !has_phase(PHASE_C)) //has A & B
+					{
+						complex detvalue = b_mat[0][0]*b_mat[1][1] - b_mat[0][1]*b_mat[1][0];
+
+						Y[0][0] = b_mat[1][1] / detvalue;
+						Y[0][1] = b_mat[0][1] * -1.0 / detvalue;
+						Y[1][0] = b_mat[1][0] * -1.0 / detvalue;
+						Y[1][1] = b_mat[0][0] / detvalue;
+					}
+					else if (!has_phase(PHASE_A) && has_phase(PHASE_B) && has_phase(PHASE_C))	//has B & C
+					{
+						complex detvalue = b_mat[1][1]*b_mat[2][2] - b_mat[1][2]*b_mat[2][1];
+
+						Y[1][1] = b_mat[2][2] / detvalue;
+						Y[1][2] = b_mat[1][2] * -1.0 / detvalue;
+						Y[2][1] = b_mat[2][1] * -1.0 / detvalue;
+						Y[2][2] = b_mat[1][1] / detvalue;
+					}
+					else if ((has_phase(PHASE_A) && has_phase(PHASE_B) && has_phase(PHASE_C)) || (has_phase(PHASE_D))) //has ABC or D (D=ABC)
+						inverse(b_mat,Y);
+
+					//Compute total self admittance - include line charging capacitance
+					//Basically undo a_mat = I + 1/2 Zabc*Yabc
+					equalm(a_mat,Ylinecharge);
+					Ylinecharge[0][0]-=1;
+					Ylinecharge[1][1]-=1;
+					Ylinecharge[2][2]-=1;
+					multiply(2.0,Ylinecharge,Ylefttemp);
+					multiply(Y,Ylefttemp,Ylinecharge);
+
+					//Split back in half for application to each side
+					multiply(0.5,Ylinecharge,Ylefttemp);
+
+					//See how this is being handled
+					if ((enable_inrush_calculations == true) && (require_inrush_update == true))
+					{
+						//Update constant terms - shunt is the same for capacitance
+						for (jindex=0; jindex<3; jindex++)
+						{
+							for (kindex=0; kindex<3; kindex++)
+							{
+								//Extract the imaginary part (should be only part) and de-phasor it - Yshunt/(2*pi*f)*2/dt
+								workingvalue = Ylefttemp[jindex][kindex].Im() / (PI * current_frequency * deltatimestep_running);
+
+								//Put into the "shunt" matrix
+								Ylefttemp[jindex][kindex] += complex(workingvalue,0.0);
+
+								//Copy this value into the final storage matrix too
+								LinkCapShuntTerm[jindex*3+kindex] = Ylefttemp[jindex][kindex];
+
+								//Create chrcstore while we're in here
+								chrcstore[jindex*3+kindex] = 2.0 * workingvalue;
+							}
+						}
+					}
+					//Defaulted else -- In-rush not enabled, just continue like normal
+
+					//Combine back into the full shunt term
+					addition(Ylefttemp,From_Y,Yc);
+
+					//Now parse into the new storage structure (manual to ensure things are placed right)
+					for (jindex=0; jindex<3; jindex++)
+					{
+						for (kindex=0; kindex<3; kindex++)
+						{
+							YSfrom[jindex*3+kindex]=Yc[jindex][kindex];
+						}
+					}
+				}//End non-triplex lines
 			}
 			else	//Normal execution
 			{
@@ -2551,8 +2586,10 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 					*/
 				}
 
-				//Null out the frequency function - links don't do anything with it anyways
-				delta_freq_functions[temp_pwr_object_current] = NULL;
+				//Attempt to map up post-delta
+				post_delta_functions[temp_pwr_object_current] = (FUNCTIONADDR)(gl_get_function(obj,"postupdate_pwr_object"));
+
+				//No null check, since this one just may not work (post update may not exist)
 
 				//See if we're an appropriate transformer and in-rush enabled
 				if ((enable_inrush_calculations == true) && (gl_object_isa(obj,"transformer","powerflow")))
@@ -3570,7 +3607,11 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 			else
 				ofnode = NULL;	//Ensure it's blanked
 
-			if ((SpecialLnk == DELTADELTA) || (SpecialLnk == WYEWYE))
+			if (SpecialLnk == VFD)
+			{
+				;	//Do nothing for now - handled elsewhere
+			}
+			else if ((SpecialLnk == DELTADELTA) || (SpecialLnk == WYEWYE))
 			{
 				//See if we're in deltamode and in-rush enabled
 				if ((deltatimestep_running > 0) && (enable_inrush_calculations == true) && (SpecialLnk == WYEWYE))
@@ -4794,6 +4835,10 @@ void link_object::calculate_power()
 				indiv_power_out[0] = (a_mat[0][0].Re() == 0.0) ? 0.0 : t->voltage[0]*~current_out[0];
 				indiv_power_out[1] = (a_mat[1][1].Re() == 0.0) ? 0.0 : t->voltage[1]*~current_out[1];
 				indiv_power_out[2] = (a_mat[2][2].Re() == 0.0) ? 0.0 : t->voltage[2]*~current_out[2];
+			}
+			else if (SpecialLnk == VFD)
+			{
+				;	//Do nothing, handled elsewhere
 			}
 			else
 			{
@@ -7097,7 +7142,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			if (NR_branchdata[NR_branch_reference].lnk_type == 3)	//Fuse
 			{
 				//Get the fuse
-				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
+				tmpobj = NR_branchdata[NR_branch_reference].obj;
 
 				if (tmpobj == NULL)
 				{
@@ -7177,7 +7222,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			else if (NR_branchdata[NR_branch_reference].lnk_type == 6)	//Recloser
 			{
 				//Get the recloser
-				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
+				tmpobj = NR_branchdata[NR_branch_reference].obj;
 
 				if (tmpobj == NULL)
 				{
@@ -7257,7 +7302,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				//Follows convention of safety devices above
 				//Extra coding - basically what would have happened below when it was classified as a safety device
 				//Get the switch
-				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
+				tmpobj = NR_branchdata[NR_branch_reference].obj;
 
 				if (tmpobj == NULL)
 				{
@@ -7355,7 +7400,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					}
 
 					//Get the swing bus value
-					tmpobj = gl_get_object(NR_busdata[temp_node].name);
+					tmpobj = NR_busdata[temp_node].obj;
 
 					if (tmpobj == NULL)
 					{
@@ -7405,7 +7450,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 6)	//Recloser
 							{
 								//Get the recloser
-								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
+								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
 
 								if (tmpobj == NULL)
 								{
@@ -7485,7 +7530,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 5)	//Sectionalizer
 							{
 								//Get the sectionalizer
-								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
+								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
 
 								if (tmpobj == NULL)
 								{
@@ -7574,7 +7619,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 3)	//Fuse
 							{
 								//Get the fuse
-								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
+								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
 
 								if (tmpobj == NULL)
 								{
@@ -7651,7 +7696,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 4)	//Transformer - not really "protective" - we assume it explodes
 							{
 								//Get the transformer
-								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
+								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
 
 								if (tmpobj == NULL)
 								{
@@ -9831,7 +9876,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						if ((NR_branchdata[protect_locations[phaseidx]].lnk_type == 2) && (switch_val == true))	//Switch
 						{
 							//Get the switch
-							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
+							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
 
 							if (tmpobj == NULL)
 							{
@@ -9976,7 +10021,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 6)	//recloser
 						{
 							//Get the recloser
-							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
+							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
 
 							if (tmpobj == NULL)
 							{
@@ -10106,7 +10151,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 5)	//Sectionalizer
 						{
 							//Get the sectionalizer
-							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
+							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
 
 							if (tmpobj == NULL)
 							{
@@ -10236,7 +10281,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 3)	//fuse
 						{
 							//Get the fuse
-							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
+							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
 
 							if (tmpobj == NULL)
 							{
@@ -11776,7 +11821,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 		temp_branch_phases = NR_branchdata[temp_branch_fc].phases & 0x07;
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
+			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
 			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -11944,7 +11989,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	temp_branch_phases = removed_phase | NR_branchdata[temp_branch_fc].phases;
 	if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 		temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-		temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
+		temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
 		if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 			temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 			temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -12213,7 +12258,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	{
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
+			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
 			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -12281,7 +12326,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	while (branchNum < 3 && NR_busdata[temp_node].link_directConnect[branchNum] != -2) {
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
+			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
 			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -12771,4 +12816,3 @@ void lu_matrix_inverse(complex *input_mat, complex *output_mat, int size_val)
 
 
 /**@}*/
-
