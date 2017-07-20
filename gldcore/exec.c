@@ -2219,28 +2219,46 @@ STATUS exec_start(void)
 			/* check for clock advance (indicating last pass) */
 			if ( exec_sync_get(NULL)!=global_clock )
 			{
-				TIMESTAMP commit_time = TS_NEVER;
-				commit_time = commit_all(global_clock, exec_sync_get(NULL));
-				if ( absolute_timestamp(commit_time) <= global_clock)
+				exec_clock_update_modules();
+				if ( exec_sync_get(NULL) < global_clock )
 				{
-					// commit cannot force reiterations, and any event where the time is less than the global clock
-					//  indicates that the object is reporting a failure
-					output_error("model commit failed");
+					output_error("model clock_update failed");
 					/* TROUBLESHOOT
-						The commit procedure failed.  This is usually preceded 
-						by a more detailed message that explains why it failed.  Follow
-						the guidance for that message and try again.
+					 *  The clock_update procedure failed. This is usually
+					 *  preceded by a more detailed message that explains why it
+					 *  failed. Follow the guidance for that message and try
+					 *  again.
 					 */
-					THROW("commit failure");
-				} else if( absolute_timestamp(commit_time) < exec_sync_get(NULL) )
-				{
-					exec_sync_set(NULL,commit_time);
 				}
-				/* reset iteration count */
-				iteration_counter = global_iteration_limit;
+				else if ( exec_sync_get(NULL) == global_clock )
+				{
+					iteration_counter = global_iteration_limit;
+				}
+				else
+				{
+					TIMESTAMP commit_time = TS_NEVER;
+					commit_time = commit_all(global_clock, exec_sync_get(NULL));
+					if ( absolute_timestamp(commit_time) <= global_clock)
+					{
+						// commit cannot force reiterations, and any event where the time is less than the global clock
+						//  indicates that the object is reporting a failure
+						output_error("model commit failed");
+						/* TROUBLESHOOT
+							The commit procedure failed.  This is usually preceded
+							by a more detailed message that explains why it failed.  Follow
+							the guidance for that message and try again.
+						 */
+						THROW("commit failure");
+					} else if( absolute_timestamp(commit_time) < exec_sync_get(NULL) )
+					{
+						exec_sync_set(NULL,commit_time);
+					}
+					/* reset iteration count */
+					iteration_counter = global_iteration_limit;
 
-				/* count number of timesteps */
-				tsteps++;
+					/* count number of timesteps */
+					tsteps++;
+				}
 			}
 
 			/* check iteration limit */
@@ -2282,11 +2300,6 @@ STATUS exec_start(void)
 				}
 				exec_sync_set(NULL,global_clock + deltatime);
 				global_simulation_mode = SM_EVENT;
-			}
-
-			/* clock update is the very last chance to change the next time */
-			if(exec_sync_get(NULL) != global_clock){
-				exec_clock_update_modules();
 			}
 		} // end of while loop
 

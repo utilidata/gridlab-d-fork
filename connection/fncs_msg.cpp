@@ -294,13 +294,16 @@ void send_die(void)
 	//need to check the exit code. send die with an error exit code.
 	int a;
 	a = 0;
-
-	gld_global exitCode("exit_code");
-	if(exitCode.get_int16() != 0){
-		fncs::die();
-	} else {
-		fncs::finalize();
+#if HAVE_FNCS
+	if(fncs::is_initialized()){
+		gld_global exitCode("exit_code");
+		if(exitCode.get_int16() != 0){
+			fncs::die();
+		} else {
+			fncs::finalize();
+		}
 	}
+#endif
 }
 
 int fncs_msg::init(OBJECT *parent){
@@ -487,9 +490,12 @@ int fncs_msg::init(OBJECT *parent){
 		}
 	}
 	//register with fncs
-	printf("%s",zplfile.str().c_str());
 	fncs::initialize(zplfile.str());
 	atexit(send_die);
+	if(!fncs::is_initialized()) {
+		gl_error("fncs_msg::init(): GridLAB-D failed to connect to the fncs_broker. GridLAB-D tried to initialize with the broker with the following configuration.\n%s", zplfile.str().c_str());
+		return 0;
+	}
 	last_approved_fncs_time = gl_globalclock;
 	last_delta_fncs_time = (double)(gl_globalclock);
 	initial_sim_time = gl_globalclock;
@@ -498,158 +504,177 @@ int fncs_msg::init(OBJECT *parent){
 
 int fncs_msg::precommit(TIMESTAMP t1){
 	int result = 0;
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		if (message_type == MT_GENERAL){
 
-	if (message_type == MT_GENERAL){
-
-		//process external function calls
-		incoming_fncs_function();
-		//publish precommit variables
-		result = publishVariables(vmap[4]);
-		if(result == 0){
-			return result;
+			//process external function calls
+			incoming_fncs_function();
+			//publish precommit variables
+			result = publishVariables(vmap[4]);
+			if(result == 0){
+				return result;
+			}
+			//read precommit variables from cache
+			result = subscribeVariables(vmap[4]);
+			if(result == 0){
+				return result;
+			}
 		}
-		//read precommit variables from cache
-		result = subscribeVariables(vmap[4]);
-		if(result == 0){
-			return result;
+		// read precommit json variables from GridAPPSD, renke
+		//TODO
+		else if (message_type == MT_JSON)
+		{
+			result = subscribeJsonVariables();
+			if(result == 0){
+				return result;
+			}
 		}
+	} else {
+		gl_error("fncs_msg::precommit: The die message was received from the fncs_broker due to an error from another federate.");
+		return 0;
 	}
-	// read precommit json variables from GridAPPSD, renke
-	//TODO
-	else if (message_type == MT_JSON)
-	{
-		result = subscribeJsonVariables();
-		if(result == 0){
-			return result;
-		}
-	}
-
+#endif
 	return 1;
 }
 
 TIMESTAMP fncs_msg::presync(TIMESTAMP t1){
-
-	int result = 0;
-	result = publishVariables(vmap[5]);
-	if(result == 0){
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		result = publishVariables(vmap[5]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+		//read presync variables from cache
+		result = subscribeVariables(vmap[5]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+	} else {
+		gl_error("fncs_msg::presync: The die message was received from the fncs_broker due to an error from another federate.");
 		return TS_INVALID;
 	}
-	//read presync variables from cache
-	result = subscribeVariables(vmap[5]);
-	if(result == 0){
-		return TS_INVALID;
-	}
+#endif
 	return TS_NEVER;
 }
 
 TIMESTAMP fncs_msg::plc(TIMESTAMP t1){
-
-	int result = 0;
-	result = publishVariables(vmap[12]);
-	if(result == 0){
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		result = publishVariables(vmap[12]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+		//read plc variables from cache
+		result = subscribeVariables(vmap[12]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+	} else {
+		gl_error("fncs_msg::plc: The die message was received from the fncs_broker due to an error from another federate.");
 		return TS_INVALID;
 	}
-	//read plc variables from cache
-	result = subscribeVariables(vmap[12]);
-	if(result == 0){
-		return TS_INVALID;
-	}
+#endif
 	return TS_NEVER;
 }
 
 TIMESTAMP fncs_msg::sync(TIMESTAMP t1){
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		TIMESTAMP t2;
+		result = publishVariables(vmap[6]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+		//read sync variables from cache
+		result = subscribeVariables(vmap[6]);
+		if(result == 0){
+			return TS_INVALID;
+		}
 
-	int result = 0;
-	TIMESTAMP t2;
-	result = publishVariables(vmap[6]);
-	if(result == 0){
+		if (message_type == MT_GENERAL)
+			return TS_NEVER;
+		else if (message_type == MT_JSON ){
+			t2=t1+1;
+			return t2;
+		}
+	} else {
+		gl_error("fncs_msg::sync: The die message was received from the fncs_broker due to an error from another federate.");
 		return TS_INVALID;
 	}
-	//read sync variables from cache
-	result = subscribeVariables(vmap[6]);
-	if(result == 0){
-		return TS_INVALID;
-	}
-
-	if (message_type == MT_GENERAL)
-		return TS_NEVER;
-	else if (message_type == MT_JSON ){
-		t2=t1+1;
-		return t2;
-	}
+#endif
+	return TS_NEVER;
 }
 
 TIMESTAMP fncs_msg::postsync(TIMESTAMP t1){
-
-	int result = 0;
-	result = publishVariables(vmap[7]);
-	if(result == 0){
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		result = publishVariables(vmap[7]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+		//read postsync variables from cache
+		result = subscribeVariables(vmap[7]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+	} else {
+		gl_error("fncs_msg::sync: The die message was received from the fncs_broker due to an error from another federate.");
 		return TS_INVALID;
 	}
-	//read postsync variables from cache
-	result = subscribeVariables(vmap[7]);
-	if(result == 0){
-		return TS_INVALID;
-	}
+#endif
 	return TS_NEVER;
 }
 
 TIMESTAMP fncs_msg::commit(TIMESTAMP t0, TIMESTAMP t1){
-
-	int result = 0;
-	result = publishVariables(vmap[8]);
-	if(result == 0){
-		return TS_INVALID;
-	}
-
-	// publish json_configure variables, renke
-	// TODO
-	if (message_type == MT_JSON)
-	{
-		result = publishJsonVariables();
-		if(result == 0){
-			return TS_INVALID;
-		}
-	}
-
-	//read commit variables from cache
-	// put a if to check the message_type
-	result = subscribeVariables(vmap[8]);
-	if(result == 0){
-		return TS_INVALID;
-	}
 	return TS_NEVER;
 }
 
 int fncs_msg::prenotify(PROPERTY* p,char* v){
-
-	int result = 0;
-	//publish prenotify variables
-	result = publishVariables(vmap[9]);
-	if(result == 0){
-		return result;
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		//publish prenotify variables
+		result = publishVariables(vmap[9]);
+		if(result == 0){
+			return result;
+		}
+		//read prenotify variables from cache
+		result = subscribeVariables(vmap[9]);
+		if(result == 0){
+			return result;
+		}
+	} else {
+		gl_error("fncs_msg::prenotify: The die message was received from the fncs_broker due to an error from another federate.");
+		return TS_INVALID;
 	}
-	//read prenotify variables from cache
-	result = subscribeVariables(vmap[9]);
-	if(result == 0){
-		return result;
-	}
+#endif
 	return 1;
 }
 
 int fncs_msg::postnotify(PROPERTY* p,char* v){
-
-	int result = 0;
-	//publish postnotify variables
-	result = publishVariables(vmap[10]);
-	if(result == 0){
-		return result;
+#if HAVE_FNCS
+	if(fncs::is_initialized()) {
+		int result = 0;
+		//publish postnotify variables
+		result = publishVariables(vmap[10]);
+		if(result == 0){
+			return result;
+		}
+		//read postnotify variables from cache
+		result = subscribeVariables(vmap[10]);
+		if(result == 0){
+			return result;
+		}
+	} else {
+		gl_error("fncs_msg::postnotify: The die message was received from the fncs_broker due to an error from another federate.");
+		return TS_INVALID;
 	}
-	//read postnotify variables from cache
-	result = subscribeVariables(vmap[10]);
-	if(result == 0){
-		return result;
-	}
+#endif
 	return 1;
 }
 
@@ -662,92 +687,99 @@ SIMULATIONMODE fncs_msg::deltaInterUpdate(unsigned int delta_iteration_counter, 
 		return SM_ERROR;
 	}
 	if(dclock.get_int64() > 0){
-		if(delta_iteration_counter == 0){
-			//publish commit variables
-			result = publishVariables(vmap[8]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			//read commit variables from cache
-			result = subscribeVariables(vmap[8]);
-			if(result == 0){
-				return SM_ERROR;
+#if HAVE_FNCS
+		if(fncs::is_initialized()) {
+			if(delta_iteration_counter == 0){
+				//publish commit variables
+				result = publishVariables(vmap[8]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read commit variables from cache
+				result = subscribeVariables(vmap[8]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+
+				//process external function calls
+				incoming_fncs_function();
+
+				//publish precommit variables
+				result = publishVariables(vmap[4]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read precommit variables from cache
+				result = subscribeVariables(vmap[4]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				return SM_DELTA_ITER;
 			}
 
-			//process external function calls
-			incoming_fncs_function();
-
-			//publish precommit variables
-			result = publishVariables(vmap[4]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			//read precommit variables from cache
-			result = subscribeVariables(vmap[4]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			return SM_DELTA_ITER;
-		}
-
-		if(delta_iteration_counter == 1)
-		{
-			//publish presync variables
-			result = publishVariables(vmap[5]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			//read presync variables from cache
-			result = subscribeVariables(vmap[5]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			return SM_DELTA_ITER;
-		}
-
-		if(delta_iteration_counter == 2)
-		{
-			//publish plc variables
-			result = publishVariables(vmap[12]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			//read plc variables from cache
-			result = subscribeVariables(vmap[12]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			return SM_DELTA_ITER;
-		}
-
-		if(delta_iteration_counter == 3)
-		{
-			//publish sync variables
-			result = publishVariables(vmap[6]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			//read sync variables from cache
-			result = subscribeVariables(vmap[6]);
-			if(result == 0){
-				return SM_ERROR;
-			}
-			return SM_DELTA_ITER;
-		}
-
-		if(delta_iteration_counter == 4)
+			if(delta_iteration_counter == 1)
 			{
-			//publish postsync variables
-			result = publishVariables(vmap[7]);
-			if(result == 0){
-				return SM_ERROR;
+				//publish presync variables
+				result = publishVariables(vmap[5]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read presync variables from cache
+				result = subscribeVariables(vmap[5]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				return SM_DELTA_ITER;
 			}
-			//read postsync variables from cache
-			result = subscribeVariables(vmap[7]);
-			if(result == 0){
-				return SM_ERROR;
+
+			if(delta_iteration_counter == 2)
+			{
+				//publish plc variables
+				result = publishVariables(vmap[12]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read plc variables from cache
+				result = subscribeVariables(vmap[12]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				return SM_DELTA_ITER;
 			}
+
+			if(delta_iteration_counter == 3)
+			{
+				//publish sync variables
+				result = publishVariables(vmap[6]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read sync variables from cache
+				result = subscribeVariables(vmap[6]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				return SM_DELTA_ITER;
+			}
+
+			if(delta_iteration_counter == 4)
+				{
+				//publish postsync variables
+				result = publishVariables(vmap[7]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+				//read postsync variables from cache
+				result = subscribeVariables(vmap[7]);
+				if(result == 0){
+					return SM_ERROR;
+				}
+			}
+		} else {
+			gl_error("fncs_msg::deltaInderUpdate: The die message was received from the fncs_broker due to an error from another federate.");
+			return SM_ERROR;
 		}
+#endif
 	}
 	return SM_EVENT;
 }
@@ -755,23 +787,28 @@ SIMULATIONMODE fncs_msg::deltaInterUpdate(unsigned int delta_iteration_counter, 
 SIMULATIONMODE fncs_msg::deltaClockUpdate(double t1, unsigned long timestep, SIMULATIONMODE sysmode)
 {
 #if HAVE_FNCS
-	if (t1 > last_delta_fncs_time){
-		fncs::time fncs_time = 0;
-		fncs::time t = 0;
-		double dt = 0;
-		dt = (t1 - (double)initial_sim_time) * 1000000000.0;
-		t = (fncs::time)((dt + ((double)(timestep) / 2.0)) - fmod((dt + ((double)(timestep) / 2.0)), (double)timestep));
-		fncs::update_time_delta((fncs::time)timestep);
-		fncs_time = fncs::time_request(t);
-		if(sysmode == SM_EVENT)
-			exitDeltamode = true;
-		if(fncs_time != t){
-			gl_error("fncs_msg::deltaClockUpdate: Cannot return anything other than the time GridLAB-D requested in deltamode.");
-			return SM_ERROR;
-		} else {
-			last_delta_fncs_time = (double)(fncs_time)/1000000000.0 + (double)(initial_sim_time);
-			t1 = fncs_time;
+	if(fncs::is_initialized()) {
+		if (t1 > last_delta_fncs_time){
+			fncs::time fncs_time = 0;
+			fncs::time t = 0;
+			double dt = 0;
+			dt = (t1 - (double)initial_sim_time) * 1000000000.0;
+			t = (fncs::time)((dt + ((double)(timestep) / 2.0)) - fmod((dt + ((double)(timestep) / 2.0)), (double)timestep));
+			fncs::update_time_delta((fncs::time)timestep);
+			fncs_time = fncs::time_request(t);
+			if(sysmode == SM_EVENT)
+				exitDeltamode = true;
+			if(fncs_time != t){
+				gl_error("fncs_msg::deltaClockUpdate: Cannot return anything other than the time GridLAB-D requested in deltamode.");
+				return SM_ERROR;
+			} else {
+				last_delta_fncs_time = (double)(fncs_time)/1000000000.0 + (double)(initial_sim_time);
+				t1 = fncs_time;
+			}
 		}
+	} else {
+		gl_error("fncs_msg::deltaClockUpdate: Cannot return the current time or less than the current time.");
+		return SM_ERROR;
 	}
 #endif
 	return SM_DELTA; // We should've only gotten here by being in SM_DELTA to begin with.
@@ -780,35 +817,61 @@ SIMULATIONMODE fncs_msg::deltaClockUpdate(double t1, unsigned long timestep, SIM
 TIMESTAMP fncs_msg::clk_update(TIMESTAMP t1)
 {
 	// TODO move t1 back if you want, but not to global_clock or before
-	TIMESTAMP fncs_time = 0;
-	if(exitDeltamode == true){
 #if HAVE_FNCS
-		fncs::update_time_delta(1000000000);
-#endif
-		exitDeltamode = false;
-		return t1;
-	}
-	if(t1 > last_approved_fncs_time){
-		if(gl_globalclock == gl_globalstoptime){
-			return t1;
-		} else if (t1 > gl_globalstoptime && gl_globalclock < gl_globalstoptime){
-			t1 == gl_globalstoptime;
-		}
-#if HAVE_FNCS
-		fncs::time t = 0;
-		t = (fncs::time)((t1 - initial_sim_time)*1000000000);
-		fncs_time = ((TIMESTAMP)fncs::time_request(t))/1000000000 + initial_sim_time;
-#endif
-
-		if(fncs_time <= gl_globalclock){
-			gl_error("fncs_msg::clock_update: Cannot return the current time or less than the current time.");
+	if(fncs::is_initialized()) {
+		int result = 0;
+		result = publishVariables(vmap[8]);
+		if(result == 0){
 			return TS_INVALID;
-		} else {
-			last_approved_fncs_time = fncs_time;
-			t1 = fncs_time;
 		}
+
+		// publish json_configure variables, renke
+		// TODO
+		if (message_type == MT_JSON)
+		{
+			result = publishJsonVariables();
+			if(result == 0){
+				return TS_INVALID;
+			}
+		}
+
+		//read commit variables from cache
+		// put a if to check the message_type
+		result = subscribeVariables(vmap[8]);
+		if(result == 0){
+			return TS_INVALID;
+		}
+		TIMESTAMP fncs_time = 0;
+		if(exitDeltamode == true){
+			fncs::update_time_delta(1000000000);
+			exitDeltamode = false;
+			return t1;
+		}
+		if(t1 > last_approved_fncs_time){
+			if(gl_globalclock == gl_globalstoptime){
+				return t1;
+			} else if (t1 > gl_globalstoptime && gl_globalclock < gl_globalstoptime){
+				t1 == gl_globalstoptime;
+			}
+			fncs::time t = 0;
+			t = (fncs::time)((t1 - initial_sim_time)*1000000000);
+			fncs_time = ((TIMESTAMP)fncs::time_request(t))/1000000000 + initial_sim_time;
+
+			if(fncs_time <= gl_globalclock){
+				gl_error("fncs_msg::clock_update: Cannot return the current time or less than the current time.");
+				return TS_INVALID;
+			} else {
+				last_approved_fncs_time = fncs_time;
+				t1 = fncs_time;
+			}
+		}
+	} else {
+		gl_error("fncs_msg::clock_update: The die message was recieved from the fncs_broker due to an error from another federate.");
+		return TS_INVALID;
 	}
+#endif
 	return t1;
+
 }
 
 int fncs_msg::finalize(){
