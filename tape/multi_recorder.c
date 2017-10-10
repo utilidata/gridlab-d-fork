@@ -38,6 +38,7 @@
 #include "tape.h"
 #include "file.h"
 #include "odbc.h"
+#include "polar_prop.h"
 
 #ifndef WIN32
 #define strtok_s strtok_r
@@ -570,6 +571,10 @@ RECORDER_MAP *link_multi_properties(OBJECT *obj, char *property_list)
 	PROPERTY *prop = NULL;
 	PROPERTY *target = NULL;
 	double scale = 1.0;
+	int is_polar = 0;
+	int is_polar_mag = 0;
+	int is_polar_ang = 0;
+	int is_polar_arg = 0;
 
 	strcpy(list,property_list); /* avoid destroying orginal list */
 	for (itemptr = strtok(list,","); itemptr != NULL; itemptr = strtok(NULL,","))
@@ -582,6 +587,10 @@ RECORDER_MAP *link_multi_properties(OBJECT *obj, char *property_list)
 		ustr[0] = 0;
 		pstr[0] = 0;
 		unit = NULL;
+		is_polar = 0;
+		is_polar_mag = 0;
+		is_polar_ang = 0;
+		is_polar_arg = 0;
 
 		//if(2 == sscanf(itemptr, "%[^:]:%[^\n\r\0]", objstr, itemstr)){
 		if(2 == sscanf(itemptr, " %[^:]:%s", objstr, itemstr)){	//changed this line because of conflicts in rh5
@@ -617,11 +626,23 @@ RECORDER_MAP *link_multi_properties(OBJECT *obj, char *property_list)
 		/* must occur w/ *cpart=0 before gl_get_property in order to properly reformat the property name string */
 		cpart = strchr(item, '.');
 		if(cpart != NULL){
-			if(strcmp("imag", cpart+1) == 0){
+			if((strcmp("imag", cpart+1) == 0) || (strcmp("img", cpart+1) == 0)){
 				cid = (int)((int64)&(oblig.i) - (int64)&oblig);
 				*cpart = 0;
 			} else if(strcmp("real", cpart+1) == 0){
 				cid = (int)((int64)&(oblig.r) - (int64)&oblig);
+				*cpart = 0;
+			} else if(strcmp("mag", cpart+1) == 0){
+				is_polar = 1;
+				is_polar_mag = 1;
+				*cpart = 0;
+			} else if(strcmp("ang", cpart+1) == 0){
+				is_polar = 1;
+				is_polar_ang = 1;
+				*cpart = 0;
+			} else if(strcmp("arg", cpart+1) == 0){
+				is_polar = 1;
+				is_polar_arg = 1;
 				*cpart = 0;
 			} else {
 				;
@@ -660,6 +681,25 @@ RECORDER_MAP *link_multi_properties(OBJECT *obj, char *property_list)
 		if(cid >= 0){ /* doing the complex part thing */
 			rmap->prop.ptype = PT_double;
 			(rmap->prop.addr) = (PROPERTYADDR)((int64)(rmap->prop.addr) + cid);
+		}
+		if(is_polar) {
+			/* locate the property copy */
+			polar_property_t *polar_prop = get_polar_property(rmap->obj, item, &(rmap->prop));
+			if (is_polar_mag) {
+				rmap->prop.ptype = PT_double;
+				(rmap->prop.addr) = POLARADDR(rmap->obj, &(polar_prop->mag));
+			}
+			else if (is_polar_ang) {
+				rmap->prop.ptype = PT_double;
+				(rmap->prop.addr) = POLARADDR(rmap->obj, &(polar_prop->ang));
+			}
+			else if (is_polar_arg) {
+				rmap->prop.ptype = PT_double;
+				(rmap->prop.addr) = POLARADDR(rmap->obj, &(polar_prop->arg));
+			}
+			else {
+				gl_error("recorder: is_polar failed");
+			}
 		}
 	}
 	return first;
@@ -777,6 +817,10 @@ EXPORT TIMESTAMP sync_multi_recorder(OBJECT *obj, TIMESTAMP t0, PASSCONFIG pass)
 		}
 	}
 
+	/* update polar property values */
+	if (my->rmap != NULL) {
+		update_polar_properties();
+	}
 	/* update property value */
 	if ((my->rmap != NULL) && (my->interval == 0 || my->interval == -1)){	
 		if(read_multi_properties(my, obj->parent,my->rmap,buffer,sizeof(buffer))==0) // vestigal use of parent
