@@ -107,7 +107,7 @@ triplex_meter::triplex_meter(MODULE *mod) : triplex_node(mod)
 			PT_int16, "momentary_count", PADDR(momentary_count),PT_DESCRIPTION,"reliability momentary event counter",
 			PT_int16, "total_count", PADDR(total_count),PT_DESCRIPTION,"reliability total event counter",
 			PT_int16, "s_flag", PADDR(s_flag),PT_DESCRIPTION,"reliability flag that gets set if the meter experienced more than n sustained interruptions",
-			PT_int16, "t_flag", PADDR(t_flag),PT_DESCRIPTION,"reliability flage that gets set if the meter experienced more than n events total",
+			PT_int16, "t_flag", PADDR(t_flag),PT_DESCRIPTION,"reliability flag that gets set if the meter experienced more than n events total",
 			PT_complex, "pre_load", PADDR(pre_load),PT_DESCRIPTION,"the load prior to being interrupted",
 #endif
 
@@ -132,6 +132,13 @@ triplex_meter::triplex_meter(MODULE *mod) : triplex_node(mod)
 			PT_double, "second_tier_energy[kWh]", PADDR(tier_energy[1]),PT_DESCRIPTION,"price of energy on tier above first tier",
 			PT_double, "third_tier_price[$/kWh]", PADDR(tier_price[2]),PT_DESCRIPTION,"first tier price of energy greater than third tier energy",
 			PT_double, "third_tier_energy[kWh]", PADDR(tier_energy[2]),PT_DESCRIPTION,"price of energy on tier above second tier",
+
+			//under - over voltage warning
+			PT_bool, "voltage_check", PADDR(voltage_check),PT_DESCRIPTION,"enable voltage check in triplex meter",
+			PT_bool, "over_voltage_warning", PADDR(over_voltage_warning),PT_DESCRIPTION,"warning for voltage over a specified limit",
+			PT_bool, "under_voltage_warning", PADDR(under_voltage_warning),PT_DESCRIPTION,"warning for voltage under a specified limit",
+			PT_double, "max_voltage_factor", PADDR(upper_voltage_factor),PT_DESCRIPTION,"Upper limit for voltage factor beyond which the operator gets a warning",
+			PT_double, "min_voltage_factor", PADDR(lower_voltage_factor),PT_DESCRIPTION,"Lower limit for voltage factor below which the operator gets a warning",
 
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 
@@ -189,6 +196,12 @@ int triplex_meter::create()
 
 	tpmeter_interrupted = false;	//Assumes we start as "uninterrupted"
 	tpmeter_interrupted_secondary = false;	//Assumes start with no momentary interruptions
+	under_voltage_warning = false;
+	over_voltage_warning = false;
+	upper_voltage_factor = 0.05;
+	lower_voltage_factor = 0.05;
+	voltage_check = true;
+
 
 
 	return result;
@@ -330,6 +343,23 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 	measured_voltage[0].SetPolar(voltageA.Mag(),voltageA.Arg());
 	measured_voltage[1].SetPolar(voltageB.Mag(),voltageB.Arg());
 	measured_voltage[2].SetPolar(voltageC.Mag(),voltageC.Arg());
+
+	//%check whether voltages are within limit specified by the operator
+	if(voltage_check == true && tpmeter_interrupted == false)
+	{
+		// checking line-to-line voltage for triplex meters
+		max_allowed_voltage = (2*nominal_voltage)+(upper_voltage_factor*2*nominal_voltage);
+		min_allowed_voltage = (2*nominal_voltage)-(lower_voltage_factor*2*nominal_voltage);
+		if (voltage12.Mag() > max_allowed_voltage)
+			over_voltage_warning = true;
+		else
+			over_voltage_warning = false;
+
+		if (voltage12.Mag() < min_allowed_voltage)
+			under_voltage_warning = true;
+		else
+			under_voltage_warning = false;
+	}
 
 	if (t1 > last_t)
 	{

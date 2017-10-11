@@ -70,6 +70,12 @@ public:
 
 	double process_bill(TIMESTAMP t1);	///< function for processing current bill
 	int check_prices();				///< checks to make sure current prices are valid
+	bool voltage_check;
+	bool over_voltage_warning;
+	bool under_voltage_warning;
+	double upper_voltage_factor;
+	double lower_voltage_factor;
+
 
 private:
 	double previous_energy_total;  ///< Used to track what the meter reading was the previous month
@@ -83,6 +89,8 @@ private:
     TIMESTAMP start_timestamp;
     TIMESTAMP interval_dt;
     int interval_count;
+	double max_allowed_voltage;
+	double min_allowed_voltage;
 
 public:
 	static CLASS *oclass;

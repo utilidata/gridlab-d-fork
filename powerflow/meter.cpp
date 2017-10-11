@@ -145,6 +145,17 @@ meter::meter(MODULE *mod) : node(mod)
 			PT_double, "second_tier_energy[kWh]", PADDR(tier_energy[1]),PT_DESCRIPTION,"switching point between first tier price and second tier price",
 			PT_double, "third_tier_price[$/kWh]", PADDR(tier_price[2]),PT_DESCRIPTION,"price of electricity when energy usage exceeds third tier energy usage",
 			PT_double, "third_tier_energy[kWh]", PADDR(tier_energy[2]),PT_DESCRIPTION,"switching point between second tier price and third tier price",
+			//under - over voltage warning
+			PT_bool, "voltage_check", PADDR(voltage_check),PT_DESCRIPTION,"enable voltage check in triplex meter",
+			PT_bool, "over_voltage_warningA", PADDR(over_voltage_warningA),PT_DESCRIPTION,"warning for voltage over a specified limit phase A",
+			PT_bool, "under_voltage_warningA", PADDR(under_voltage_warningA),PT_DESCRIPTION,"warning for voltage under a specified limit phase A",
+			PT_bool, "over_voltage_warningB", PADDR(over_voltage_warningB),PT_DESCRIPTION,"warning for voltage over a specified limit phase B",
+			PT_bool, "under_voltage_warningB", PADDR(under_voltage_warningB),PT_DESCRIPTION,"warning for voltage under a specified limit phase B",
+			PT_bool, "over_voltage_warningC", PADDR(over_voltage_warningC),PT_DESCRIPTION,"warning for voltage over a specified limit phase C",
+			PT_bool, "under_voltage_warningC", PADDR(under_voltage_warningC),PT_DESCRIPTION,"warning for voltage under a specified limit phase C",
+			PT_double, "max_voltage_factor", PADDR(upper_voltage_factor),PT_DESCRIPTION,"Upper limit for voltage beyond which the operator gets a warning",
+			PT_double, "min_voltage_factor", PADDR(lower_voltage_factor),PT_DESCRIPTION,"Lower limit for voltage below which the operator gets a warning",
+
 
 			//PT_double, "measured_reactive[kVar]", PADDR(measured_reactive), has not implemented yet
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
@@ -224,6 +235,15 @@ int meter::create()
 	last_tier_price[2] = 0;
 	last_price_base = 0;
 	meter_power_consumption = complex(0,0);
+	under_voltage_warningA = false;
+	over_voltage_warningA = false;
+	under_voltage_warningB = false;
+	over_voltage_warningB = false;
+	under_voltage_warningC = false;
+	over_voltage_warningC = false;
+	upper_voltage_factor = 0.05;
+	lower_voltage_factor = 0.05;
+	voltage_check = true;
 
 	//Flag us as a meter
 	node_type = METER_NODE;
@@ -418,6 +438,47 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 	measured_voltageD[0] = voltageA - voltageB;
 	measured_voltageD[1] = voltageB - voltageC;
 	measured_voltageD[2] = voltageC - voltageA;
+
+	//%check whether voltages are within limit specified by the operator
+	if(voltage_check == true  && meter_interrupted == false)
+	{
+		// checking line-to-neutral voltage for meters
+		// the limit percentage is same as of now for all the three phases
+		max_allowed_voltage = (nominal_voltage)+(upper_voltage_factor*nominal_voltage);
+		min_allowed_voltage = (nominal_voltage)-(lower_voltage_factor*nominal_voltage);
+		// check for phase A
+		if (voltageA.Mag() > max_allowed_voltage)
+			over_voltage_warningA = true;
+		else
+			over_voltage_warningA = false;
+
+		if (voltageA.Mag() < min_allowed_voltage)
+			under_voltage_warningA = true;
+		else
+			under_voltage_warningA = false;
+
+		// check for phase B
+		if (voltageB.Mag() > max_allowed_voltage)
+			over_voltage_warningB = true;
+		else
+			over_voltage_warningB = false;
+
+		if (voltageB.Mag() < min_allowed_voltage)
+			under_voltage_warningB = true;
+		else
+			under_voltage_warningB = false;
+
+		// check for phase C
+		if (voltageC.Mag() > max_allowed_voltage)
+			over_voltage_warningC = true;
+		else
+			over_voltage_warningC = false;
+
+		if (voltageC.Mag() < min_allowed_voltage)
+			under_voltage_warningC = true;
+		else
+			under_voltage_warningC = false;
+	}
 
 	if ((solver_method == SM_NR)||solver_method  == SM_FBS)
 	{

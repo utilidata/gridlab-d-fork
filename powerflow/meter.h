@@ -81,6 +81,17 @@ public:
 	double process_bill(TIMESTAMP t1);
 	int check_prices();
 
+	bool voltage_check;
+	bool under_voltage_warningA;
+	bool over_voltage_warningA;
+	bool under_voltage_warningB;
+	bool over_voltage_warningB;
+	bool under_voltage_warningC;
+	bool over_voltage_warningC;
+	double upper_voltage_factor;
+	double lower_voltage_factor;
+
+
 	void BOTH_meter_sync_fxn(void);
 
 	SIMULATIONMODE inter_deltaupdate_meter(unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
@@ -101,6 +112,8 @@ private:
     TIMESTAMP last_delta_timestamp;
     TIMESTAMP start_timestamp;
     TIMESTAMP interval_dt;
+	double max_allowed_voltage;
+	double min_allowed_voltage;
 
 public:
 	static CLASS *oclass;
