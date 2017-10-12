@@ -18,6 +18,11 @@ public:
 	double measured_real_energy_delta;	///< metered real energy consumption over last interval
 	double measured_reactive_energy;///< metered reactive energy consumption
 	double measured_reactive_energy_delta;///< metered reactive energy consumption over last interval
+	double measured_real_max_voltage_in_interval[3];	///< metered real part of maximum voltage over the last interval
+	double measured_imag_max_voltage_in_interval[3];	///< metered real part of maximum voltage over the last interval
+	double measured_real_min_voltage_in_interval[3];	///< metered real part of maximum voltage over the last interval
+	double measured_imag_min_voltage_in_interval[3];	///< metered real part of maximum voltage over the last interval
+	double measured_avg_voltage_mag_in_interval[3];	///< metered real part of maximum voltage over the last interval
     double measured_energy_delta_timestep; // Period of timestep for real and reactive delta energy calculation
 	complex measured_power;			///< metered power
 	complex indiv_measured_power[3]; ///< individual phase power
@@ -65,13 +70,27 @@ public:
 
 	double process_bill(TIMESTAMP t1);	///< function for processing current bill
 	int check_prices();				///< checks to make sure current prices are valid
+	bool voltage_check;
+	bool over_voltage_warning;
+	bool under_voltage_warning;
+	double upper_voltage_factor;
+	double lower_voltage_factor;
+
 
 private:
 	double previous_energy_total;  ///< Used to track what the meter reading was the previous month
     double last_measured_real_energy;
     double last_measured_reactive_energy;
+    complex last_measured_voltage[3];
+    complex last_measured_max_voltage[3];
+    complex last_measured_min_voltage[3];
+    double last_measured_avg_voltage[3];
     TIMESTAMP last_delta_timestamp;
     TIMESTAMP start_timestamp;
+    TIMESTAMP interval_dt;
+    int interval_count;
+	double max_allowed_voltage;
+	double min_allowed_voltage;
 
 public:
 	static CLASS *oclass;
