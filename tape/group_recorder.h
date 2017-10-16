@@ -6,7 +6,6 @@
 #include "tape.h"
 
 EXPORT void new_group_recorder(MODULE *);
-EXPORT int group_recorder_postroutine(OBJECT *obj, double timedbl);
 
 #ifdef __cplusplus
 
@@ -32,7 +31,7 @@ public:
 	int isa(char *);
 	TIMESTAMP postsync(TIMESTAMP, TIMESTAMP);
 
-	int commit(TIMESTAMP t1, double t1dbl, bool deltacall);
+	int commit(TIMESTAMP);
 public:
 	char1024 group_def;
 	double dInterval;
@@ -47,7 +46,7 @@ public:
 private:
 	int write_header();
 	int read_line();
-	int write_line(TIMESTAMP t1, double t1dbl, bool deltacall);
+	int write_line(TIMESTAMP);
 	int flush_line();
 	int write_footer();
 private:
@@ -68,7 +67,6 @@ private:
 	char *line_buffer;
 	size_t line_size;
 	bool interval_write;
-	bool deltamode_gr;
 };
 
 #endif // C++

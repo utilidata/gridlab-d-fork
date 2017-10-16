@@ -1,4 +1,4 @@
-/** $Id: exec.c 1188 2009-01-02 21:51:07Z dchassin $
+/** $Id: exec.c 4738 2014-07-03 00:55:39Z dchassin $
 	Copyright (C) 2008 Battelle Memorial Institute
 	@file exec.c
 	@addtogroup exec Main execution loop
@@ -1513,13 +1513,13 @@ void exec_sync_merge(struct sync_data *to, /**< sync data to merge to (NULL to u
 	if ( from==NULL ) from = &main_sync;
 	if ( from==to ) return;
 	if ( exec_sync_isinvalid(from) ) 
-		exec_sync_set(to,TS_INVALID,false);
+		exec_sync_set(to,TS_INVALID);
 	else if ( exec_sync_isnever(from) ) 
 		{} /* do nothing */	
 	else if ( exec_sync_ishard(from) )
-		exec_sync_set(to,exec_sync_get(from),false);
+		exec_sync_set(to,exec_sync_get(from));
 	else
-		exec_sync_set(to,-exec_sync_get(from),false);
+		exec_sync_set(to,-exec_sync_get(from));
 }
 /** Update the sync data structure 
 
@@ -1535,8 +1535,7 @@ void exec_sync_merge(struct sync_data *to, /**< sync data to merge to (NULL to u
 	Otherwise, the event status is changed to FAILED.
  **/
 void exec_sync_set(struct sync_data *d, /**< sync data to update (NULL to update main) */
-				  TIMESTAMP t,/**< timestamp to update with (negative time means soft event, 0 means failure) */
-				  bool deltaflag)/**< flag to let us know this was a deltamode exit - force it forward, otherwise can fail to exit */
+				  TIMESTAMP t)/**< timestamp to update with (negative time means soft event, 0 means failure) */
 {
 	if ( d==NULL ) d=&main_sync;
 	if ( t==TS_NEVER ) return; /* nothing to do */
@@ -1562,15 +1561,8 @@ void exec_sync_set(struct sync_data *d, /**< sync data to update (NULL to update
 	else if ( t>0 ) /* hard event */
 	{
 		d->hard_event++;
-		if (deltaflag==false)
-		{
-			if ( d->step_to>t )
-				d->step_to = t;
-		}
-		else	/* Deltamode exit - override us */
-		{
+		if ( d->step_to>t )
 			d->step_to = t;
-		}
 	}
 	else if ( t<0 ) /* soft event */
 	{
@@ -1661,7 +1653,7 @@ void exec_clock_update_modules()
 			}
 		}
 	}
-	exec_sync_set(NULL,t1,false);
+	exec_sync_set(NULL,t1);
 }
 
 /******************************************************************
@@ -1816,9 +1808,9 @@ STATUS exec_start(void)
 
 	/* reset sync event */
 	exec_sync_reset(NULL);
-	exec_sync_set(NULL,global_clock,false);
+	exec_sync_set(NULL,global_clock);
 	if ( global_stoptime<TS_NEVER )
-		exec_sync_set(NULL,global_stoptime+1,false);
+		exec_sync_set(NULL,global_stoptime+1);
 
 	/* signal handler */
 	signal(SIGABRT, exec_sighandler);
@@ -1942,7 +1934,7 @@ STATUS exec_start(void)
 #define IIR 0.9 /* about 30s for 95% unit step response */
 				global_realtime_metric = global_realtime_metric*IIR + metric*(1-IIR);
 				exec_sync_reset(NULL);
-				exec_sync_set(NULL,global_clock,false);
+				exec_sync_set(NULL,global_clock);
 				output_verbose("realtime clock advancing to %d", (int)global_clock);
 			}
 
@@ -1997,7 +1989,7 @@ STATUS exec_start(void)
 					output_error("a simulation mode error has occurred");
 					break; /* terminate main loop immediately */
 				}
-				exec_sync_set(NULL,t,false);
+				exec_sync_set(NULL,t);
 			}
 //			else
 //				global_simulation_mode = SM_EVENT;
@@ -2018,7 +2010,7 @@ STATUS exec_start(void)
 
 			/* account for stoptime only if global clock is not already at stoptime */
 			if ( global_clock<=global_stoptime && global_stoptime!=TS_NEVER )
-				exec_sync_set(NULL,global_stoptime+1,false);
+				exec_sync_set(NULL,global_stoptime+1);
 
 			/* synchronize all internal schedules */
 			internal_synctime = syncall_internals(global_clock);
@@ -2032,7 +2024,7 @@ STATUS exec_start(void)
 					Follow the troubleshooting recommendations for that message and try again.
 				 */
 			}
-			exec_sync_set(NULL,internal_synctime,false);
+			exec_sync_set(NULL,internal_synctime);
 
 			/* prepare multithreading */
 			if (!global_debug_mode)
@@ -2179,7 +2171,7 @@ STATUS exec_start(void)
 
 						for (j = 0; j < thread_data->count; j++) {
 							if (thread_data->data[j].status == FAILED) {
-								exec_sync_set(NULL,TS_INVALID,false);
+								exec_sync_set(NULL,TS_INVALID);
 								THROW("synchronization failed");
 							}
 						}
@@ -2190,7 +2182,7 @@ STATUS exec_start(void)
 				/* run all non-schedule transforms */
 				{
 					TIMESTAMP st = transform_syncall(global_clock,XS_DOUBLE|XS_COMPLEX|XS_ENDUSE);// if (abs(t)<t2) t2=t;
-					exec_sync_set(NULL,st,false);
+					exec_sync_set(NULL,st);
 				}
 			}
 			setTP = false;
@@ -2242,7 +2234,7 @@ STATUS exec_start(void)
 					THROW("commit failure");
 				} else if( absolute_timestamp(commit_time) < exec_sync_get(NULL) )
 				{
-					exec_sync_set(NULL,commit_time,false);
+					exec_sync_set(NULL,commit_time);
 				}
 				/* reset iteration count */
 				iteration_counter = global_iteration_limit;
@@ -2261,7 +2253,7 @@ STATUS exec_start(void)
 					the object that is causing the convergence problem and contact
 					the developer of the module that implements that object's class.
 				 */
-				exec_sync_set(NULL,TS_INVALID,false);
+				exec_sync_set(NULL,TS_INVALID);
 				THROW("convergence failure");
 			}
 
@@ -2288,7 +2280,7 @@ STATUS exec_start(void)
 					THROW("Deltamode simulation failure");
 					break;	//Just in case, but probably not needed
 				}
-				exec_sync_set(NULL,global_clock + deltatime,true);
+				exec_sync_set(NULL,global_clock + deltatime);
 				global_simulation_mode = SM_EVENT;
 			}
 
@@ -2314,7 +2306,7 @@ STATUS exec_start(void)
 	CATCH(char *msg)
 	{
 		output_error("exec halted: %s", msg);
-		exec_sync_set(NULL,TS_INVALID,false);
+		exec_sync_set(NULL,TS_INVALID);
 		/* TROUBLESHOOT
 			This indicates that the core's solver shut down.  This message
 			is usually preceded by more detailed messages.  Follow the guidance

@@ -93,13 +93,10 @@
 #include <math.h>
 #include "link.h"
 #include "node.h"
-
-//More stuff to try and separate when time permits
 #include "meter.h"
 #include "regulator.h"
 #include "triplex_meter.h"
 #include "switch_object.h"
-
 
 CLASS* link_object::oclass = NULL;
 CLASS* link_object::pclass = NULL;
@@ -159,11 +156,6 @@ link_object::link_object(MODULE *mod) : powerflow_object(mod)
 			PT_complex, "fault_current_out_A[A]", PADDR(If_out[0]),PT_DESCRIPTION,"fault current flowing out, phase A",
 			PT_complex, "fault_current_out_B[A]", PADDR(If_out[1]),PT_DESCRIPTION,"fault current flowing out, phase B",
 			PT_complex, "fault_current_out_C[A]", PADDR(If_out[2]),PT_DESCRIPTION,"fault current flowing out, phase C",
-
-			PT_complex, "fault_voltage_A[A]", PADDR(Vf_out[0]),PT_DESCRIPTION,"fault voltage, phase A",
-			PT_complex, "fault_voltage_B[A]", PADDR(Vf_out[1]),PT_DESCRIPTION,"fault voltage, phase B",
-			PT_complex, "fault_voltage_C[A]", PADDR(Vf_out[2]),PT_DESCRIPTION,"fault voltage, phase C",
-				
 			PT_set, "flow_direction", PADDR(flow_direction),PT_DESCRIPTION,"flag used for describing direction of the flow of power",
 				PT_KEYWORD, "UNKNOWN", (set)FD_UNKNOWN,
 				PT_KEYWORD, "AF", (set)FD_A_NORMAL,
@@ -1633,7 +1625,7 @@ void link_object::NR_link_presync_fxn(void)
 				Y[jindex][kindex] = 0.0;
 
 		// compute admittance - invert b matrix - special circumstances given different methods
-		if ((SpecialLnk!=NORMAL) && (SpecialLnk!=SPLITPHASE) && (SpecialLnk!=VFD))
+		if ((SpecialLnk!=NORMAL) && (SpecialLnk!=SPLITPHASE))
 		{
 			;	//Just skip over all of this nonsense
 		}
@@ -1803,7 +1795,7 @@ void link_object::NR_link_presync_fxn(void)
 					*/
 								
 			}
-			else if ((SpecialLnk==SWITCH) || (SpecialLnk==REGULATOR) || (SpecialLnk==VFD))
+			else if ((SpecialLnk==SWITCH) || (SpecialLnk==REGULATOR))
 			{
 				;	//More nothingness (all handled inside switch/regulator itself)
 			}
@@ -2569,10 +2561,8 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 					*/
 				}
 
-				//Attempt to map up post-delta
-				post_delta_functions[temp_pwr_object_current] = (FUNCTIONADDR)(gl_get_function(obj,"postupdate_pwr_object"));
-
-				//No null check, since this one just may not work (post update may not exist)
+				//Null out the frequency function - links don't do anything with it anyways
+				delta_freq_functions[temp_pwr_object_current] = NULL;
 
 				//See if we're an appropriate transformer and in-rush enabled
 				if ((enable_inrush_calculations == true) && (gl_object_isa(obj,"transformer","powerflow")))
@@ -3536,11 +3526,7 @@ int link_object::CurrentCalculation(int nodecall)
 			else
 				ofnode = NULL;	//Ensure it's blanked
 
-			if (SpecialLnk == VFD)
-			{
-				;	//Do nothing for now - handled elsewhere
-			}
-			else if ((SpecialLnk == DELTADELTA) || (SpecialLnk == WYEWYE))
+			if ((SpecialLnk == DELTADELTA) || (SpecialLnk == WYEWYE))
 			{
 				//See if we're in deltamode and in-rush enabled
 				if ((deltatimestep_running > 0) && (enable_inrush_calculations == true) && (SpecialLnk == WYEWYE))
@@ -4732,10 +4718,6 @@ void link_object::calculate_power()
 				indiv_power_out[0] = (a_mat[0][0].Re() == 0.0) ? 0.0 : t->voltage[0]*~current_out[0];
 				indiv_power_out[1] = (a_mat[1][1].Re() == 0.0) ? 0.0 : t->voltage[1]*~current_out[1];
 				indiv_power_out[2] = (a_mat[2][2].Re() == 0.0) ? 0.0 : t->voltage[2]*~current_out[2];
-			}
-			else if (SpecialLnk == VFD)
-			{
-				;	//Do nothing, handled elsewhere
 			}
 			else
 			{
@@ -7039,7 +7021,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			if (NR_branchdata[NR_branch_reference].lnk_type == 3)	//Fuse
 			{
 				//Get the fuse
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -7119,7 +7101,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			else if (NR_branchdata[NR_branch_reference].lnk_type == 6)	//Recloser
 			{
 				//Get the recloser
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -7199,7 +7181,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				//Follows convention of safety devices above
 				//Extra coding - basically what would have happened below when it was classified as a safety device
 				//Get the switch
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -7297,7 +7279,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					}
 
 					//Get the swing bus value
-					tmpobj = NR_busdata[temp_node].obj;
+					tmpobj = gl_get_object(NR_busdata[temp_node].name);
 
 					if (tmpobj == NULL)
 					{
@@ -7347,7 +7329,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 6)	//Recloser
 							{
 								//Get the recloser
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -7427,7 +7409,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 5)	//Sectionalizer
 							{
 								//Get the sectionalizer
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -7516,7 +7498,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 3)	//Fuse
 							{
 								//Get the fuse
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -7593,7 +7575,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 4)	//Transformer - not really "protective" - we assume it explodes
 							{
 								//Get the transformer
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -9847,7 +9829,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			if (NR_branchdata[NR_branch_reference].lnk_type == 3)	//Fuse
 			{
 				//Get the fuse
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -9927,7 +9909,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 			else if (NR_branchdata[NR_branch_reference].lnk_type == 6)	//Recloser
 			{
 				//Get the recloser
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -10007,7 +9989,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 				//Follows convention of safety devices above
 				//Extra coding - basically what would have happened below when it was classified as a safety device
 				//Get the switch
-				tmpobj = NR_branchdata[NR_branch_reference].obj;
+				tmpobj = gl_get_object(NR_branchdata[NR_branch_reference].name);
 
 				if (tmpobj == NULL)
 				{
@@ -10105,7 +10087,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 					}
 
 					//Get the swing bus value
-					tmpobj = NR_busdata[temp_node].obj;
+					tmpobj = gl_get_object(NR_busdata[temp_node].name);
 
 					if (tmpobj == NULL)
 					{
@@ -10155,7 +10137,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 6)	//Recloser
 							{
 								//Get the recloser
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -10235,7 +10217,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 5)	//Sectionalizer
 							{
 								//Get the sectionalizer
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -10324,7 +10306,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 3)	//Fuse
 							{
 								//Get the fuse
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -10401,7 +10383,7 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 							else if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].lnk_type == 4)	//Transformer - not really "protective" - we assume it explodes
 							{
 								//Get the transformer
-								tmpobj = NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].obj;
+								tmpobj = gl_get_object(NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].name);
 
 								if (tmpobj == NULL)
 								{
@@ -10913,7 +10895,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						if ((NR_branchdata[protect_locations[phaseidx]].lnk_type == 2) && (switch_val == true))	//Switch
 						{
 							//Get the switch
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -11058,7 +11040,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 6)	//recloser
 						{
 							//Get the recloser
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -11188,7 +11170,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 5)	//Sectionalizer
 						{
 							//Get the sectionalizer
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -11318,7 +11300,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 3)	//fuse
 						{
 							//Get the fuse
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -11924,7 +11906,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						if ((NR_branchdata[protect_locations[phaseidx]].lnk_type == 2) && (switch_val == true))	//Switch
 						{
 							//Get the switch
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -11989,7 +11971,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 6)	//recloser
 						{
 							//Get the recloser
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -12119,7 +12101,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 5)	//Sectionalizer
 						{
 							//Get the sectionalizer
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -12249,7 +12231,7 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 						else if (NR_branchdata[protect_locations[phaseidx]].lnk_type == 3)	//fuse
 						{
 							//Get the fuse
-							tmpobj = NR_branchdata[protect_locations[phaseidx]].obj;
+							tmpobj = gl_get_object(NR_branchdata[protect_locations[phaseidx]].name);
 
 							if (tmpobj == NULL)
 							{
@@ -12549,17 +12531,14 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 				//Populate fault current into the output
                                 if (fault_type == 111) {
 					If_out[0] = IVf[0];
-					Vf_out[0] = IVf[1];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[0] = If_out[0];
 				} else if (fault_type == 211) {
 					If_out[1] = IVf[0];
-					Vf_out[1] = IVf[1];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[1] = If_out[1];
 				} else if (fault_type == 311) {
 					If_out[2] = IVf[0];
-					Vf_out[2] = IVf[1];
 					//Assume lines for now -- input is the same (transformers will be different)
 					If_in[2] = If_out[2];
 				}
@@ -12632,8 +12611,7 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 					{
 						If_out[0] = IVf[0];
 						If_out[1] = IVf[1];
-						Vf_out[0] = IVf[2];
-						Vf_out[1] = IVf[3];
+
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[0] = If_out[0];
 						If_in[1] = If_out[1];
@@ -12642,8 +12620,7 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 					{
 						If_out[1] = IVf[0];
 						If_out[2] = IVf[1];
-						Vf_out[1] = IVf[2];
-						Vf_out[2] = IVf[3];
+
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[1] = If_out[1];
 						If_in[2] = If_out[2];
@@ -12652,8 +12629,7 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 					{
 						If_out[0] = IVf[0];
 						If_out[2] = IVf[1];
-						Vf_out[0] = IVf[2];
-						Vf_out[2] = IVf[3];
+
 						//Assume lines for now -- input is the same (transformers will be different)
 						If_in[0] = If_out[0];
 						If_in[2] = If_out[2];
@@ -12720,9 +12696,7 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 				If_out[0] = IVf[0];
 				If_out[1] = IVf[1];
 				If_out[2] = IVf[2];
-				Vf_out[0] = IVf[3];
-				Vf_out[1] = IVf[4];
-				Vf_out[2] = IVf[5];
+
 				//Assume lines for now -- input is the same (transformers will be different)
 				If_in[0] = If_out[0];
 				If_in[1] = If_out[1];
@@ -12810,7 +12784,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 		temp_branch_phases = NR_branchdata[temp_branch_fc].phases & 0x07;
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = NR_branchdata[temp_branch_fc].obj;	//get the transformer object
+			temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
 			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -12961,7 +12935,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	temp_branch_phases = removed_phase | NR_branchdata[temp_branch_fc].phases;
 	if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 		temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-		temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+		temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
 		if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 			temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 			temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -13229,7 +13203,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	{
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+			temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
 			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -13302,7 +13276,7 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	//update the fault current variables in link object connected to the swing bus
 	if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 		temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-		temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+		temp_transformer = gl_get_object(temp_branch_name);//get the transformer object
 		if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
 			temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
 			temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
@@ -13710,3 +13684,4 @@ void lu_matrix_inverse(complex *input_mat, complex *output_mat, int size_val)
 
 
 /**@}*/
+

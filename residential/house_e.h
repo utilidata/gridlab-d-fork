@@ -62,9 +62,6 @@ typedef enum {
 #define SOUTH		0x0008
 #define WEST		0x0010
 
-EXPORT SIMULATIONMODE interupdate_house_e(OBJECT *obj, unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val);
-EXPORT STATUS postupdate_house_e(OBJECT *obj);
-
 class house_e : public residential_enduse { /*inherits due to HVAC being a load */
 public:
 	object weather; ///< reference to the climate
@@ -77,8 +74,6 @@ public:
 	complex *pLine_I;						///< pointer to the three current on three lines
 	complex *pShunt;						///< pointer to shunt value on triplex parent
 	complex *pPower;						///< pointer to power value on triplex parent
-	gld_property *pFrequency;						///< pointer to frequency value on triplex parent
-	double default_frequency;
 	bool *pHouseConn;						///< Pointer to house_present variable on triplex parent
 	int *pMeterStatus;						///< Pointer to service_status variable on triplex parent
 	IMPLICITENDUSE *implicit_enduse_list;	///< implicit enduses
@@ -430,8 +425,6 @@ private:
 	bool heat_start;
 
 	complex load_values[3][3];	//Power, Current, and impedance (admittance) load accumulators for
-	bool deltamode_inclusive;	//Boolean for deltamode calls - pulled from object flags
-	bool deltamode_registered;	//Boolean for deltamode registration -- basically a "first run" flag
 
 public:
 	int error_flag;
@@ -458,9 +451,6 @@ public:
 
 	CIRCUIT *attach(OBJECT *obj, double limit, int is220=false, enduse *pEnduse=NULL);
 	void attach_implicit_enduses(void);
-
-	SIMULATIONMODE inter_deltaupdate(unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val);
-	STATUS post_deltaupdate(void);
 
 // access methods
 public:

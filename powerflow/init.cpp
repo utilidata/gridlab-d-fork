@@ -41,7 +41,6 @@
 #include "load_tracker.h"
 #include "triplex_load.h"
 #include "impedance_dump.h"
-#include "vfd.h"
 
 EXPORT CLASS *init(CALLBACKS *fntable, MODULE *module, int argc, char *argv[])
 {
@@ -89,6 +88,7 @@ EXPORT CLASS *init(CALLBACKS *fntable, MODULE *module, int argc, char *argv[])
 	gl_global_create("powerflow::enable_subsecond_models", PT_bool, &enable_subsecond_models,PT_DESCRIPTION,"Enable deltamode capabilities within the powerflow module",NULL);
 	gl_global_create("powerflow::all_powerflow_delta", PT_bool, &all_powerflow_delta,PT_DESCRIPTION,"Forces all powerflow objects that are capable to participate in deltamode",NULL);
 	gl_global_create("powerflow::deltamode_timestep", PT_double, &deltamode_timestep_publish,PT_UNITS,"ns",PT_DESCRIPTION,"Desired minimum timestep for deltamode-related simulations",NULL);
+	gl_global_create("powerflow::deltamode_extra_function", PT_int64, &deltamode_extra_function,NULL);
 	gl_global_create("powerflow::current_frequency",PT_double,&current_frequency,PT_UNITS,"Hz",PT_DESCRIPTION,"Current system-level frequency of the powerflow system",NULL);
 	gl_global_create("powerflow::master_frequency_update",PT_bool,&master_frequency_update,PT_DESCRIPTION,"Tracking variable to see if an object has become the system frequency updater",NULL);
 	gl_global_create("powerflow::enable_frequency_dependence",PT_bool,&enable_frequency_dependence,PT_DESCRIPTION,"Flag to enable frequency-based variations in impedance values of lines and loads",NULL);
@@ -141,7 +141,6 @@ EXPORT CLASS *init(CALLBACKS *fntable, MODULE *module, int argc, char *argv[])
 	new load_tracker(module);
 	new triplex_load(module);
 	new impedance_dump(module);
-	new vfd(module);
 
 	/* always return the first class registered */
 	return node::oclass;
@@ -257,16 +256,16 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 	limit_minus_one = NR_delta_iteration_limit - 1;
 	error_state = false;
 
+	//See if this is the first instance -- if so, update the timestep (if in-rush enabled)
+	if (deltatimestep_running < 0.0)
+	{
+		//Set the powerflow global -- technically the same as dt, but in double precision (less divides)
+		deltatimestep_running = (double)((double)dt/(double)DT_SECOND);
+	}
+	//Default else -- already set
+
 	if (enable_subsecond_models == true)
 	{
-		//See if this is the first instance -- if so, update the timestep (if in-rush enabled)
-		if (deltatimestep_running < 0.0)
-		{
-			//Set the powerflow global -- technically the same as dt, but in double precision (less divides)
-			deltatimestep_running = (double)((double)dt/(double)DT_SECOND);
-		}
-		//Default else -- already set
-
 		while (simple_iter_test < NR_delta_iteration_limit)	//Simple iteration capability
 		{
 			//Do the preliminary pass, in case we're needed
@@ -278,23 +277,8 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 				{
 					if (delta_functions[curr_object_number] != NULL)
 					{
-						//Try/catch for any GL_THROWs that may be called
-						try {
-							//Call the actual function
-							function_status = ((SIMULATIONMODE (*)(OBJECT *, unsigned int64, unsigned long, unsigned int, bool))(*delta_functions[curr_object_number]))(delta_objects[curr_object_number],delta_time,dt,iteration_count_val,false);
-						}
-						catch (const char *msg)
-						{
-							gl_error("powerflow:interupdate - pre-pass function call: %s", msg);
-							error_state = true;
-							function_status = SM_ERROR;	//Flag as an error too
-						}
-						catch (...)
-						{
-							gl_error("powerflow:interupdate - pre-pass function call: unknown exception");
-							error_state = true;
-							function_status = SM_ERROR;	//Flag as an error too
-						}
+						//Call the actual function
+						function_status = ((SIMULATIONMODE (*)(OBJECT *, unsigned int64, unsigned long, unsigned int, bool))(*delta_functions[curr_object_number]))(delta_objects[curr_object_number],delta_time,dt,iteration_count_val,false);
 					}
 					else	//No functional call for this, skip it
 					{
@@ -305,7 +289,7 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 					function_status = SM_DELTA;
 
 				//Just make sure we didn't error 
-				if (function_status == SM_ERROR)
+				if (function_status == (int)SM_ERROR)
 				{
 					gl_error("Powerflow object:%s - deltamode function returned an error!",delta_objects[curr_object_number]->name);
 					// Defined below
@@ -314,13 +298,6 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 					break;
 				}
 				//Default else, we were okay, so onwards and upwards!
-			}
-
-			//Check for error states -- no sense trying to solve a powerflow if we're already angry
-			if ((error_state == true) || (function_status == SM_ERROR))
-			{
-				//Break out of this while
-				break;
 			}
 
 			//Call dynamic powerflow (start of either predictor or correct set)
@@ -335,11 +312,13 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 			{
 				gl_error("powerflow:interupdate - solver_nr call: %s", msg);
 				error_state = true;
+				break;
 			}
 			catch (...)
 			{
 				gl_error("powerflow:interupdate - solver_nr call: unknown exception");
 				error_state = true;
+				break;
 			}
 			
 			//De-flag any changes that may be in progress
@@ -369,10 +348,6 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 				error_state = true;
 				break;
 			}
-			else if (error_state == true)	//Some other, unspecified error
-			{
-				break;	//Get out of the while loop
-			}
 
 			//Loop through the object list and call the updates - loop forward for SWING first, to replicate "postsync"-like order
 			for (curr_object_number=0; curr_object_number<pwr_object_count; curr_object_number++)
@@ -382,23 +357,8 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 				{
 					if (delta_functions[curr_object_number] != NULL)
 					{
-						//Try/catch for any GL_THROWs that may be called
-						try {
-							//Call the actual function
-							function_status = ((SIMULATIONMODE (*)(OBJECT *, unsigned int64, unsigned long, unsigned int, bool))(*delta_functions[curr_object_number]))(delta_objects[curr_object_number],delta_time,dt,iteration_count_val,true);
-						}
-						catch (const char *msg)
-						{
-							gl_error("powerflow:interupdate - post-pass function call: %s", msg);
-							error_state = true;
-							function_status = SM_ERROR;	//Flag as an error too
-						}
-						catch (...)
-						{
-							gl_error("powerflow:interupdate - post-pass function call: unknown exception");
-							error_state = true;
-							function_status = SM_ERROR;	//Flag as an error too
-						}
+						//Call the actual function
+						function_status = ((SIMULATIONMODE (*)(OBJECT *, unsigned int64, unsigned long, unsigned int, bool))(*delta_functions[curr_object_number]))(delta_objects[curr_object_number],delta_time,dt,iteration_count_val,true);
 					}
 					else	//Doesn't have a function, either intentionally, or "lack of supportly"
 					{
@@ -410,21 +370,15 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 
 				//Determine what our return is
 				if (function_status == SM_DELTA)
-				{
-					gl_verbose("Powerflow object:%d - %s - requested deltamode to continue",delta_objects[curr_object_number]->id,(delta_objects[curr_object_number]->name ? delta_objects[curr_object_number]->name : "Unnamed"));
-
 					event_driven = false;
-				}
 				else if (function_status == SM_DELTA_ITER)
 				{
-					gl_verbose("Powerflow object:%d - %s - requested a deltamode reiteration",delta_objects[curr_object_number]->id,(delta_objects[curr_object_number]->name ? delta_objects[curr_object_number]->name : "Unnamed"));
-
 					event_driven = false;
 					delta_iter = true;
 				}
 				else if (function_status == SM_ERROR)
 				{
-					gl_error("Powerflow object:%d - %s - deltamode function returned an error!",delta_objects[curr_object_number]->id,(delta_objects[curr_object_number]->name ? delta_objects[curr_object_number]->name : "Unnamed"));
+					gl_error("Powerflow object:%s - deltamode function returned an error!",delta_objects[curr_object_number]->name);
 					/*  TROUBLESHOOT
 					While performing a deltamode update, one object returned an error code.  Check to see if the object itself provided
 					more details and try again.  If the error persists, please submit your code and a bug report via the trac website.
@@ -435,13 +389,8 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 				//Default else, we're in SM_EVENT, so no flag change needed
 			}
 
-			//Check for error states -- blocks the reiteration if something was already angry
-			if ((error_state == true) || (function_status == SM_ERROR))
-			{
-				//Break out of this while
-				break;
-			}
-			else if (pf_result < 0)	//Check and see if we should even consider reiterating or not
+			//Check and see if we should even consider reiterating or not
+			if (pf_result < 0)
 			{
 				//Increment the iteration counter
 				simple_iter_test++;
@@ -453,7 +402,7 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 		}//End iteration while
 
 		//See if we got out here due to an error
-		if ((error_state == true) || (function_status == SM_ERROR))
+		if (error_state == true)
 		{
 			return SM_ERROR;
 		}
@@ -480,10 +429,6 @@ EXPORT SIMULATIONMODE interupdate(MODULE *module, TIMESTAMP t0, unsigned int64 d
 //Return value is a SUCCESS/FAILURE
 EXPORT STATUS postupdate(MODULE *module, TIMESTAMP t0, unsigned int64 dt)
 {
-	unsigned int64 seconds_advance, temp_time;
-	int curr_object_number;
-	STATUS function_status;
-
 	if (enable_subsecond_models == true)
 	{
 		//Final item of transitioning out is resetting the next timestep so a smaller one can take its place
@@ -491,75 +436,60 @@ EXPORT STATUS postupdate(MODULE *module, TIMESTAMP t0, unsigned int64 dt)
 
 		//Deflag the timestep variable as well
 		deltatimestep_running = -1.0;
+		
+		return SUCCESS;
+	}
+	else	//Deltamode not wanted, just "succeed"
+	{
+		return SUCCESS;
+	}
+}
 
-		//See how far we progressed - cast just in case (code pulled from core - so should align)
-		seconds_advance = (unsigned int64)(dt/DT_SECOND);
+//Extra function for deltamode calls - allows module-level calls "out of order"
+//mode variable is for selection of call (only 1 for now)
+int delta_extra_function(unsigned int mode)
+{
+	complex accumulated_power, accumulated_freqpower;
+	STATUS function_status;
+	int curr_object_number;
 
-		//See if it rounded
-		temp_time = dt - ((unsigned int64)(seconds_advance)*DT_SECOND);
+	//Zero the values
+	accumulated_power = complex(0.0,0.0);
+	accumulated_freqpower = complex(0.0,0.0);
 
-		//Store the "pre-incremented" seconds advance time - used to set object clocks
-		//so being the previous second is better for deltamode->supersecond transitions
-		deltamode_supersec_endtime = t0 + seconds_advance;
-
-		/* Determine if an increment is necessary */
-		if (temp_time != 0)
-			seconds_advance++;
-
-		//Update the tracking variable
-		deltamode_endtime = t0 + seconds_advance;
-		deltamode_endtime_dbl = (double)(t0) + ((double)(dt)/double(DT_SECOND));
-
-		//Loop through delta objects and update the execution times - at this point, mostly just a "call for the sake of a call" function
-		for (curr_object_number=0; curr_object_number<pwr_object_count; curr_object_number++)
+	//Call each powerflow functions "deltamode_frequency" to get total weighted
+	//average for frequency - then post to global
+	//Loop through the object list and call the updates
+	for (curr_object_number=0; curr_object_number<pwr_object_count; curr_object_number++)
+	{
+		if (delta_freq_functions[curr_object_number] != NULL)
 		{
-			//See if it has a post-update function
-			if (post_delta_functions[curr_object_number] != NULL)
+			//See if we're in service or not
+			if ((delta_objects[curr_object_number]->in_svc_double <= gl_globaldeltaclock) && (delta_objects[curr_object_number]->out_svc_double >= gl_globaldeltaclock))
 			{
-				//See if we're in service or not
-				if ((delta_objects[curr_object_number]->in_svc_double <= gl_globaldeltaclock) && (delta_objects[curr_object_number]->out_svc_double >= gl_globaldeltaclock))
+				//See if the function actually exists
+				if (delta_freq_functions[curr_object_number] != NULL)
 				{
-					//Try/catch for any GL_THROWs that may be called
-					try {
-						//Call the actual function
-						function_status = ((STATUS (*)(OBJECT *))(*post_delta_functions[curr_object_number]))(delta_objects[curr_object_number]);
-					}
-					catch (const char *msg)
-					{
-						gl_error("powerflow:postupdate function call: %s", msg);
-						function_status = FAILED;
-					}
-					catch (...)
-					{
-						gl_error("powerflow:postupdate function call: unknown exception");
-						function_status = FAILED;
-					}
+					//Call the actual function
+					function_status = ((STATUS (*)(OBJECT *, complex *, complex *))(*delta_freq_functions[curr_object_number]))(delta_objects[curr_object_number],&accumulated_power,&accumulated_freqpower);
 				}
-				else //Not in service
+				else	//Doesn't exit, assume we succeeded
+				{
 					function_status = SUCCESS;
-
-				//Make sure we worked
-				if (function_status == FAILED)
-				{
-					gl_error("Powerflow object:%s - failed post-deltamode update",delta_objects[curr_object_number]->name);
-					/*  TROUBLESHOOT
-					While calling the individual object post-deltamode calculations, an error occurred.  Please try again.
-					If the error persists, please submit your code and a bug report via the issues system.
-					*/
-					return FAILED;
 				}
-				//Default else - successful, keep going
 			}
-			//Default else -- we didn't have one, so just skip
+			else	//Defaulted else, not in service
+				function_status = SUCCESS;
 		}
+		else	//Defaulted else, not in service
+			function_status = SUCCESS;
 
-		//We always succeed from this, just because (unless we failed above)
-		return SUCCESS;
+		//Make sure we worked
+		if (function_status == FAILED)
+			return 0;
 	}
-	else	//Deltamode not needed -- no idea how we even got here
-	{	//Not sure how it would ever get here, but just jump out if that's the case
-		return SUCCESS;
-	}
+	
+	return 1;	
 }
 
 CDECL int do_kill()
