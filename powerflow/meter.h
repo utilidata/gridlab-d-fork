@@ -67,6 +67,8 @@ public:
 	double measured_voltage_mag[3];
 	double measured_voltageD_mag[3];
 	double measured_current_mag[3];
+	double last_measured_voltage_mag[3];
+	double last_measured_voltageD_mag[3];
 
 	typedef enum {
 		BM_NONE,

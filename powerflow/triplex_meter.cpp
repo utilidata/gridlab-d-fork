@@ -89,6 +89,9 @@ triplex_meter::triplex_meter(MODULE *mod) : triplex_node(mod)
 			PT_double, "measured_voltage_mag_1[V]", PADDR(measured_voltage_mag[0]),PT_DESCRIPTION,"measured voltage magnitude, phase 1 to ground",
 			PT_double, "measured_voltage_mag_2[V]", PADDR(measured_voltage_mag[1]),PT_DESCRIPTION,"measured voltage magnitude, phase 2 to ground",
 			PT_double, "measured_voltage_mag_N[V]", PADDR(measured_voltage_mag[2]),PT_DESCRIPTION,"measured voltage magnitude, phase N to ground",
+			PT_double, "last_measured_voltage_mag_1[V]", PADDR(last_measured_voltage_mag[0]),PT_DESCRIPTION,"measured voltage magnitude, phase N to ground",
+			PT_double, "last_measured_voltage_mag_2[V]", PADDR(last_measured_voltage_mag[1]),PT_DESCRIPTION,"measured voltage magnitude, phase N to ground",
+			PT_double, "last_measured_voltage_mag_12[V]", PADDR(last_measured_voltage_mag[2]),PT_DESCRIPTION,"measured voltage magnitude, phase N to ground",
 			PT_double, "measured_real_max_voltage_1_in_interval", PADDR(measured_real_max_voltage_in_interval[0]),PT_DESCRIPTION,"measured real max line-to-ground voltage on phase 1 over a specified interval",
 			PT_double, "measured_real_max_voltage_2_in_interval", PADDR(measured_real_max_voltage_in_interval[1]),PT_DESCRIPTION,"measured real max line-to-ground voltage on phase 2 over a specified interval",
 			PT_double, "measured_real_max_voltage_12_in_interval", PADDR(measured_real_max_voltage_in_interval[2]),PT_DESCRIPTION,"measured real max line-to-ground voltage on phase 12 over a specified interval",
@@ -177,6 +180,7 @@ int triplex_meter::create()
 	measured_real_energy = measured_reactive_energy = 0;
 	measured_real_energy_delta = measured_reactive_energy_delta = 0;
     last_measured_real_energy = last_measured_reactive_energy = 0;
+    last_measured_voltage_mag[0] = last_measured_voltage_mag[1] = last_measured_voltage_mag[2] = 0.0;
     measured_energy_delta_timestep = -1;
     start_timestamp = 0;
     last_delta_timestamp = 0;
@@ -458,6 +462,9 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 				last_measured_avg_voltage[0] = last_measured_voltage[0].Mag();
 				last_measured_avg_voltage[1] = last_measured_voltage[1].Mag();
 				last_measured_avg_voltage[2] = last_measured_voltage[2].Mag();
+				last_measured_voltage_mag[0] = last_measured_voltage[0].Mag();
+				last_measured_voltage_mag[1] = last_measured_voltage[1].Mag();
+				last_measured_voltage_mag[2] = last_measured_voltage[2].Mag();
 			} else {
 				if (last_measured_max_voltage[0].Mag() < last_measured_voltage[0].Mag()) {
 					last_measured_max_voltage[0] = last_measured_voltage[0];
@@ -482,6 +489,9 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 					last_measured_avg_voltage[1] = last_measured_avg_voltage[1] + ((last_measured_voltage[1].Mag() - last_measured_avg_voltage[1])/(i + interval_dt));
 					last_measured_avg_voltage[2] = last_measured_avg_voltage[2] + ((last_measured_voltage[2].Mag() - last_measured_avg_voltage[2])/(i + interval_dt));
 				}
+				last_measured_voltage_mag[0] = last_measured_voltage[0].Mag();
+				last_measured_voltage_mag[1] = last_measured_voltage[1].Mag();
+				last_measured_voltage_mag[2] = last_measured_voltage[2].Mag();
 			}
 			interval_count++;
 			interval_dt = interval_dt + dt;
@@ -492,6 +502,9 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 			measured_reactive_energy_delta = measured_reactive_energy - last_measured_reactive_energy;
 			last_measured_real_energy = measured_real_energy;
 			last_measured_reactive_energy = measured_reactive_energy;
+			last_measured_voltage_mag[0] = last_measured_voltage[0].Mag();
+			last_measured_voltage_mag[1] = last_measured_voltage[1].Mag();
+			last_measured_voltage_mag[2] = last_measured_voltage[2].Mag();
 			last_delta_timestamp = t1;
 			if (last_measured_max_voltage[0].Mag() < last_measured_voltage[0].Mag()) {
 				last_measured_max_voltage[0] = last_measured_voltage[0];

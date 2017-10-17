@@ -85,12 +85,19 @@ meter::meter(MODULE *mod) : node(mod)
 			PT_double, "measured_voltage_mag_A[V]", PADDR(measured_voltage_mag[0]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase A",
 			PT_double, "measured_voltage_mag_B[V]", PADDR(measured_voltage_mag[1]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase B",
 			PT_double, "measured_voltage_mag_C[V]", PADDR(measured_voltage_mag[2]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase C",
+			PT_double, "last_measured_voltage_mag_A[V]", PADDR(last_measured_voltage_mag[0]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase A at the end of interval given by measured_energy_delta_timestep",
+			PT_double, "last_measured_voltage_mag_B[V]", PADDR(last_measured_voltage_mag[1]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase B at the end of interval given by measured_energy_delta_timestep",
+			PT_double, "last_measured_voltage_mag_C[V]", PADDR(last_measured_voltage_mag[2]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase C at the end of interval given by measured_energy_delta_timestep",
 			PT_complex, "measured_voltage_AB[V]", PADDR(measured_voltageD[0]),PT_DESCRIPTION,"measured line-to-line voltage on phase AB",
 			PT_complex, "measured_voltage_BC[V]", PADDR(measured_voltageD[1]),PT_DESCRIPTION,"measured line-to-line voltage on phase BC",
 			PT_complex, "measured_voltage_CA[V]", PADDR(measured_voltageD[2]),PT_DESCRIPTION,"measured line-to-line voltage on phase CA",
 			PT_double, "measured_voltage_mag_AB[V]", PADDR(measured_voltageD_mag[0]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase AB",
 			PT_double, "measured_voltage_mag_BC[V]", PADDR(measured_voltageD_mag[1]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase BC",
 			PT_double, "measured_voltage_mag_CA[V]", PADDR(measured_voltageD_mag[2]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase CA",
+			PT_double, "last_measured_voltage_mag_AB[V]", PADDR(last_measured_voltageD_mag[0]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase AB at the end of interval given by measured_energy_delta_timestep",
+			PT_double, "last_measured_voltage_mag_BC[V]", PADDR(last_measured_voltageD_mag[1]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase BC at the end of interval given by measured_energy_delta_timestep",
+			PT_double, "last_measured_voltage_mag_CA[V]", PADDR(last_measured_voltageD_mag[2]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase CA at the end of interval given by measured_energy_delta_timestep",
+
 			PT_double, "measured_real_max_voltage_in_interval_A", PADDR(measured_real_max_voltage_in_interval[0]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase A over a specified interval",
 			PT_double, "measured_real_max_voltage_in_interval_B", PADDR(measured_real_max_voltage_in_interval[1]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase B over a specified interval",
 			PT_double, "measured_real_max_voltage_in_interval_C", PADDR(measured_real_max_voltage_in_interval[2]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase C over a specified interval",
@@ -221,6 +228,8 @@ int meter::create()
 	measured_real_min_voltageD_in_interval[0] = measured_real_min_voltageD_in_interval[1] = measured_real_min_voltageD_in_interval[2] = 0.0;
 	measured_reactive_min_voltageD_in_interval[0] = measured_reactive_min_voltageD_in_interval[1] = measured_reactive_min_voltageD_in_interval[2] = 0.0;
 	measured_avg_voltage_mag_in_interval[0] = measured_avg_voltage_mag_in_interval[1] = measured_avg_voltage_mag_in_interval[2] = 0.0;
+	last_measured_voltage_mag[0] = last_measured_voltage_mag[1] = last_measured_voltage_mag[2] =0.0;
+	last_measured_voltageD_mag[0] = last_measured_voltageD_mag[1] = last_measured_voltageD_mag[2] =0.0;
 	
 	measured_current[0] = measured_current[1] = measured_current[2] = complex(0,0,J);
 	measured_current_mag[0] = measured_current_mag[1] = measured_current_mag[2] = 0.0;
@@ -602,6 +611,13 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 				last_measured_voltageD[0] = measured_voltageD[0];
 				last_measured_voltageD[1] = measured_voltageD[1];
 				last_measured_voltageD[2] = measured_voltageD[2];
+				last_measured_voltage_mag[0]=last_measured_voltage[0].Mag();
+				last_measured_voltage_mag[1]=last_measured_voltage[1].Mag();
+				last_measured_voltage_mag[2]=last_measured_voltage[2].Mag();
+				last_measured_voltageD_mag[0]=last_measured_voltageD[0].Mag();
+				last_measured_voltageD_mag[1]=last_measured_voltageD[1].Mag();
+				last_measured_voltageD_mag[2]=last_measured_voltageD[2].Mag();
+
 				if (tretval > last_delta_timestamp + TIMESTAMP(measured_energy_delta_timestep)) {
 					tretval = last_delta_timestamp + TIMESTAMP(measured_energy_delta_timestep);
 				}
@@ -628,6 +644,12 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 					last_measured_avg_voltageD_mag[0] = last_measured_voltageD[0].Mag();
 					last_measured_avg_voltageD_mag[1] = last_measured_voltageD[1].Mag();
 					last_measured_avg_voltageD_mag[2] = last_measured_voltageD[2].Mag();
+					last_measured_voltage_mag[0]=last_measured_voltage[0].Mag();
+					last_measured_voltage_mag[1]=last_measured_voltage[1].Mag();
+					last_measured_voltage_mag[2]=last_measured_voltage[2].Mag();
+					last_measured_voltageD_mag[0]=last_measured_voltage[0].Mag();
+					last_measured_voltageD_mag[1]=last_measured_voltage[1].Mag();
+					last_measured_voltageD_mag[2]=last_measured_voltage[2].Mag();
 				} else {
 					if ( last_measured_voltage[0].Mag() > last_measured_max_voltage_mag[0].Mag()) {
 						last_measured_max_voltage_mag[0] = last_measured_voltage[0];
@@ -694,6 +716,12 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 				measured_reactive_energy_delta = measured_reactive_energy - last_measured_reactive_energy;
 				last_measured_real_energy = measured_real_energy;
 				last_measured_reactive_energy = measured_reactive_energy;
+				last_measured_voltage_mag[0]=last_measured_voltage[0].Mag();
+				last_measured_voltage_mag[1]=last_measured_voltage[1].Mag();
+				last_measured_voltage_mag[2]=last_measured_voltage[2].Mag();
+				last_measured_voltageD_mag[0]=last_measured_voltageD[0].Mag();
+				last_measured_voltageD_mag[1]=last_measured_voltageD[1].Mag();
+				last_measured_voltageD_mag[2]=last_measured_voltageD[2].Mag();
 				last_delta_timestamp = t1;
 				if ( last_measured_voltage[0].Mag() > last_measured_max_voltage_mag[0].Mag()) {
 					last_measured_max_voltage_mag[0] = last_measured_voltage[0];
