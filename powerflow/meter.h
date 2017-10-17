@@ -60,6 +60,15 @@ public:
 	double monthly_energy;			//Accumulator for the current month's energy
 	complex meter_power_consumption; //Represents standby power or losses assosciated with electric meters
 	int16 no_phases;
+	
+	// added parameters to obtain magnitudes of complex numbers
+	double measured_power_mag;
+	double indiv_measured_power_mag[3];
+	double measured_voltage_mag[3];
+	double measured_voltageD_mag[3];
+	double measured_current_mag[3];
+	double last_measured_voltage_mag[3];
+	double last_measured_voltageD_mag[3];
 
 	typedef enum {
 		BM_NONE,
