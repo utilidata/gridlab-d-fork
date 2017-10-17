@@ -75,6 +75,12 @@ public:
 	bool under_voltage_warning;
 	double upper_voltage_factor;
 	double lower_voltage_factor;
+	
+	// added parameters to obtain magnitudes of complex numbers
+	double measured_power_mag;
+	double indiv_measured_power_mag[3];
+	double measured_voltage_mag[3];
+	double measured_current_mag[3];
 
 
 private:

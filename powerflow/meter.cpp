@@ -66,9 +66,13 @@ meter::meter(MODULE *mod) : node(mod)
             PT_double, "measured_reactive_energy_delta[VAh]",PADDR(measured_reactive_energy_delta),PT_DESCRIPTION,"delta in metered reactive energy consumption from last specified measured_energy_delta_timestep",
             PT_double, "measured_energy_delta_timestep[s]",PADDR(measured_energy_delta_timestep),PT_DESCRIPTION,"Period of timestep for real and reactive delta energy calculation",
 			PT_complex, "measured_power[VA]", PADDR(measured_power),PT_DESCRIPTION,"metered real power",
+			PT_double, "measured_power_mag[VA]", PADDR(measured_power_mag),PT_DESCRIPTION,"metered real power, magnitude",
 			PT_complex, "measured_power_A[VA]", PADDR(indiv_measured_power[0]),PT_DESCRIPTION,"metered complex power on phase A",
 			PT_complex, "measured_power_B[VA]", PADDR(indiv_measured_power[1]),PT_DESCRIPTION,"metered complex power on phase B",
 			PT_complex, "measured_power_C[VA]", PADDR(indiv_measured_power[2]),PT_DESCRIPTION,"metered complex power on phase C",
+			PT_double, "measured_apparent_power_A[VA]", PADDR(indiv_measured_power_mag[0]),PT_DESCRIPTION,"metered apparent (complex power magnitude) on phase A",
+			PT_double, "measured_apparent_power_B[VA]", PADDR(indiv_measured_power_mag[1]),PT_DESCRIPTION,"metered apparent (complex power magnitude) on phase B",
+			PT_double, "measured_apparent_power_C[VA]", PADDR(indiv_measured_power_mag[2]),PT_DESCRIPTION,"metered apparent (complex power magnitude) on phase C",
 			PT_double, "measured_demand[W]", PADDR(measured_demand),PT_DESCRIPTION,"greatest metered real power during simulation",
 			PT_double, "measured_real_power[W]", PADDR(measured_real_power),PT_DESCRIPTION,"metered real power",
 			PT_double, "measured_reactive_power[VAr]", PADDR(measured_reactive_power),PT_DESCRIPTION,"metered reactive power",
@@ -78,9 +82,15 @@ meter::meter(MODULE *mod) : node(mod)
 			PT_complex, "measured_voltage_A[V]", PADDR(measured_voltage[0]),PT_DESCRIPTION,"measured line-to-neutral voltage on phase A",
 			PT_complex, "measured_voltage_B[V]", PADDR(measured_voltage[1]),PT_DESCRIPTION,"measured line-to-neutral voltage on phase B",
 			PT_complex, "measured_voltage_C[V]", PADDR(measured_voltage[2]),PT_DESCRIPTION,"measured line-to-neutral voltage on phase C",
+			PT_double, "measured_voltage_mag_A[V]", PADDR(measured_voltage_mag[0]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase A",
+			PT_double, "measured_voltage_mag_B[V]", PADDR(measured_voltage_mag[1]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase B",
+			PT_double, "measured_voltage_mag_C[V]", PADDR(measured_voltage_mag[2]),PT_DESCRIPTION,"measured line-to-neutral voltage magnitude on phase C",
 			PT_complex, "measured_voltage_AB[V]", PADDR(measured_voltageD[0]),PT_DESCRIPTION,"measured line-to-line voltage on phase AB",
 			PT_complex, "measured_voltage_BC[V]", PADDR(measured_voltageD[1]),PT_DESCRIPTION,"measured line-to-line voltage on phase BC",
 			PT_complex, "measured_voltage_CA[V]", PADDR(measured_voltageD[2]),PT_DESCRIPTION,"measured line-to-line voltage on phase CA",
+			PT_double, "measured_voltage_mag_AB[V]", PADDR(measured_voltageD_mag[0]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase AB",
+			PT_double, "measured_voltage_mag_BC[V]", PADDR(measured_voltageD_mag[1]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase BC",
+			PT_double, "measured_voltage_mag_CA[V]", PADDR(measured_voltageD_mag[2]),PT_DESCRIPTION,"measured line-to-line voltage magnitude on phase CA",
 			PT_double, "measured_real_max_voltage_in_interval_A", PADDR(measured_real_max_voltage_in_interval[0]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase A over a specified interval",
 			PT_double, "measured_real_max_voltage_in_interval_B", PADDR(measured_real_max_voltage_in_interval[1]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase B over a specified interval",
 			PT_double, "measured_real_max_voltage_in_interval_C", PADDR(measured_real_max_voltage_in_interval[2]),PT_DESCRIPTION,"measured real max line-to-neutral voltage on phase C over a specified interval",
@@ -114,6 +124,9 @@ meter::meter(MODULE *mod) : node(mod)
 			PT_complex, "measured_current_A[A]", PADDR(measured_current[0]),PT_DESCRIPTION,"measured current on phase A",
 			PT_complex, "measured_current_B[A]", PADDR(measured_current[1]),PT_DESCRIPTION,"measured current on phase B",
 			PT_complex, "measured_current_C[A]", PADDR(measured_current[2]),PT_DESCRIPTION,"measured current on phase C",
+			PT_double, "measured_current_mag_A[A]", PADDR(measured_current_mag[0]),PT_DESCRIPTION,"measured current magnitude on phase A",
+			PT_double, "measured_current_mag_B[A]", PADDR(measured_current_mag[1]),PT_DESCRIPTION,"measured current magnitude on phase B",
+			PT_double, "measured_current_mag_C[A]", PADDR(measured_current_mag[2]),PT_DESCRIPTION,"measured current magnitude on phase C",
 			PT_bool, "customer_interrupted", PADDR(meter_interrupted),PT_DESCRIPTION,"Reliability flag - goes active if the customer is in an 'interrupted' state",
 			PT_bool, "customer_interrupted_secondary", PADDR(meter_interrupted_secondary),PT_DESCRIPTION,"Reliability flag - goes active if the customer is in an 'secondary interrupted' state - i.e., momentary",
 #ifdef SUPPORT_OUTAGES
@@ -194,7 +207,11 @@ int meter::create()
 #endif
 
 	measured_voltage[0] = measured_voltage[1] = measured_voltage[2] = complex(0,0,A);
+	measured_voltage_mag[0] = measured_voltage_mag[1] = measured_voltage_mag[2] = 0.0;
+	
 	measured_voltageD[0] = measured_voltageD[1] = measured_voltageD[2] = complex(0,0,A);
+	measured_voltageD_mag[0] = measured_voltageD_mag[1] = measured_voltageD_mag[2] = 0.0;
+	
 	measured_real_max_voltage_in_interval[0] = measured_real_max_voltage_in_interval[1] = measured_real_max_voltage_in_interval[2] = 0.0;
 	measured_reactive_max_voltage_in_interval[0] = measured_reactive_max_voltage_in_interval[1] = measured_reactive_max_voltage_in_interval[2] = 0.0;
 	measured_real_max_voltageD_in_interval[0] = measured_real_max_voltageD_in_interval[1] = measured_real_max_voltageD_in_interval[2] = 0.0;
@@ -204,12 +221,18 @@ int meter::create()
 	measured_real_min_voltageD_in_interval[0] = measured_real_min_voltageD_in_interval[1] = measured_real_min_voltageD_in_interval[2] = 0.0;
 	measured_reactive_min_voltageD_in_interval[0] = measured_reactive_min_voltageD_in_interval[1] = measured_reactive_min_voltageD_in_interval[2] = 0.0;
 	measured_avg_voltage_mag_in_interval[0] = measured_avg_voltage_mag_in_interval[1] = measured_avg_voltage_mag_in_interval[2] = 0.0;
+	
 	measured_current[0] = measured_current[1] = measured_current[2] = complex(0,0,J);
+	measured_current_mag[0] = measured_current_mag[1] = measured_current_mag[2] = 0.0;
+	
 	measured_real_energy = measured_reactive_energy = 0.0;
     measured_real_energy_delta = measured_reactive_energy_delta = 0;
     last_measured_real_energy = last_measured_reactive_energy = 0;
     measured_energy_delta_timestep = -1;
+	
 	measured_power = complex(0,0,J);
+	measured_power_mag = 0.0;
+	
 	measured_demand = 0.0;
 	measured_real_power = 0.0;
 	measured_reactive_power = 0.0;
@@ -434,10 +457,18 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 	measured_voltage[0] = voltageA;
 	measured_voltage[1] = voltageB;
 	measured_voltage[2] = voltageC;
+	
+	measured_voltage_mag[0] = measured_voltage[0].Mag();
+	measured_voltage_mag[1] = measured_voltage[1].Mag();
+	measured_voltage_mag[2] = measured_voltage[2].Mag();
 
 	measured_voltageD[0] = voltageA - voltageB;
 	measured_voltageD[1] = voltageB - voltageC;
 	measured_voltageD[2] = voltageC - voltageA;
+	
+	measured_voltageD_mag[0] = measured_voltageD[0].Mag();
+	measured_voltageD_mag[1] = measured_voltageD[1].Mag();
+	measured_voltageD_mag[2] = measured_voltageD[2].Mag();
 
 	//%check whether voltages are within limit specified by the operator
 	if(voltage_check == true  && meter_interrupted == false)
@@ -493,6 +524,10 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 		measured_current[0] = current_inj[0];
 		measured_current[1] = current_inj[1];
 		measured_current[2] = current_inj[2];
+		
+		measured_current_mag[0] = measured_current[0].Mag();
+		measured_current_mag[1] = measured_current[1].Mag();
+		measured_current_mag[2] = measured_current[2].Mag();
 
 		// compute energy use from previous cycle
 		// - everything below this can moved to commit function once tape player is collecting from commit function7
@@ -506,8 +541,13 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 		indiv_measured_power[0] = measured_voltage[0]*(~measured_current[0]);
 		indiv_measured_power[1] = measured_voltage[1]*(~measured_current[1]);
 		indiv_measured_power[2] = measured_voltage[2]*(~measured_current[2]);
+		
+		indiv_measured_power_mag[0] = indiv_measured_power[0].Mag();
+		indiv_measured_power_mag[1] = indiv_measured_power[1].Mag();
+		indiv_measured_power_mag[2] = indiv_measured_power[2].Mag();
 
 		measured_power = indiv_measured_power[0] + indiv_measured_power[1] + indiv_measured_power[2];
+		measured_power_mag = measured_power.Mag();
 
 		measured_real_power = (indiv_measured_power[0]).Re()
 							+ (indiv_measured_power[1]).Re()
@@ -807,6 +847,10 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 		indiv_measured_power[0] = voltage[0]*(~current_inj[0]);
 		indiv_measured_power[1] = voltage[1]*(~current_inj[1]);
 		indiv_measured_power[2] = voltage[2]*(~current_inj[2]);
+		
+		indiv_measured_power_mag[0] = indiv_measured_power[0].Mag();
+		indiv_measured_power_mag[1] = indiv_measured_power[1].Mag();
+		indiv_measured_power_mag[2] = indiv_measured_power[2].Mag();
 	}
 
 	return tretval;
@@ -949,21 +993,38 @@ SIMULATIONMODE meter::inter_deltaupdate_meter(unsigned int64 delta_time, unsigne
 		measured_voltage[0] = voltageA;
 		measured_voltage[1] = voltageB;
 		measured_voltage[2] = voltageC;
+		
+		measured_voltage_mag[0] = measured_voltage[0].Mag();
+		measured_voltage_mag[1] = measured_voltage[1].Mag();
+		measured_voltage_mag[2] = measured_voltage[2].Mag();
 
 		measured_voltageD[0] = voltageA - voltageB;
 		measured_voltageD[1] = voltageB - voltageC;
 		measured_voltageD[2] = voltageC - voltageA;
 		
+		measured_voltageD_mag[0] = measured_voltageD[0].Mag();
+		measured_voltageD_mag[1] = measured_voltageD[1].Mag();
+		measured_voltageD_mag[2] = measured_voltageD[2].Mag();
+		
 		measured_current[0] = current_inj[0];
 		measured_current[1] = current_inj[1];
 		measured_current[2] = current_inj[2];
+		
+		measured_current_mag[0] = measured_current[0].Mag();
+		measured_current_mag[1] = measured_current[1].Mag();
+		measured_current_mag[2] = measured_current[2].Mag();
 
 		// compute demand power
 		indiv_measured_power[0] = measured_voltage[0]*(~measured_current[0]);
 		indiv_measured_power[1] = measured_voltage[1]*(~measured_current[1]);
 		indiv_measured_power[2] = measured_voltage[2]*(~measured_current[2]);
+		
+		indiv_measured_power_mag[0] = indiv_measured_power[0].Mag();
+		indiv_measured_power_mag[1] = indiv_measured_power[1].Mag();
+		indiv_measured_power_mag[2] = indiv_measured_power[2].Mag();
 
 		measured_power = indiv_measured_power[0] + indiv_measured_power[1] + indiv_measured_power[2];
+		measured_power_mag = measured_power.Mag();
 
 		measured_real_power = (indiv_measured_power[0]).Re()
 							+ (indiv_measured_power[1]).Re()
