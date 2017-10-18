@@ -77,6 +77,7 @@ public:
 	complex current_out[3];	///< current flow out of link (w.r.t. to node)
 	complex read_I_in[3];	///< published current flow to link (w.r.t from node)
 	complex read_I_out[3];  ///< published current flow out of link (w.r.t to node)
+	double read_I_out_mag[3];  ///< published current flow magnitude out of link (w.r.t to node)
 	complex If_in[3];		///< fault current flowing in 
 	complex If_out[3];		///< fault current flowing out
 	complex power_in;		///< power flow in (w.r.t from node)
