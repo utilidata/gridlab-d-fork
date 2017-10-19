@@ -147,6 +147,9 @@ link_object::link_object(MODULE *mod) : powerflow_object(mod)
 			PT_complex, "current_out_A[A]", PADDR(read_I_out[0]),PT_DESCRIPTION,"current flow out of link (w.r.t. to node), phase A",
 			PT_complex, "current_out_B[A]", PADDR(read_I_out[1]),PT_DESCRIPTION,"current flow out of link (w.r.t. to node), phase B",
 			PT_complex, "current_out_C[A]", PADDR(read_I_out[2]),PT_DESCRIPTION,"current flow out of link (w.r.t. to node), phase C",
+			PT_double, "current_out_mag_A[A]", PADDR(read_I_out_mag[0]),PT_DESCRIPTION,"current flow magnitude out of link (w.r.t. to node), phase A",
+			PT_double, "current_out_mag_B[A]", PADDR(read_I_out_mag[1]),PT_DESCRIPTION,"current flow magnitude out of link (w.r.t. to node), phase A",
+			PT_double, "current_out_mag_C[A]", PADDR(read_I_out_mag[2]),PT_DESCRIPTION,"current flow magnitude out of link (w.r.t. to node), phase A",
 			PT_complex, "current_in_A[A]", PADDR(read_I_in[0]),PT_DESCRIPTION,"current flow to link (w.r.t from node), phase A",
 			PT_complex, "current_in_B[A]", PADDR(read_I_in[1]),PT_DESCRIPTION,"current flow to link (w.r.t from node), phase B",
 			PT_complex, "current_in_C[A]", PADDR(read_I_in[2]),PT_DESCRIPTION,"current flow to link (w.r.t from node), phase C",
@@ -2793,6 +2796,9 @@ void link_object::BOTH_link_postsync_fxn(void)
 		read_I_out[0] = current_out[0];
 		read_I_out[1] = current_out[1];
 		read_I_out[2] = current_out[2];
+		read_I_out_mag[0] = read_I_out[0].Mag();
+		read_I_out_mag[1] = read_I_out[1].Mag();
+		read_I_out_mag[2] = read_I_out[2].Mag();
 	}
 
 	// This portion can be removed once tape/recorders are being updated in commit.
@@ -3067,6 +3073,10 @@ TIMESTAMP link_object::postsync(TIMESTAMP t0)
 		else
 			read_I_out[2] = tc[2];
 		
+		read_I_out_mag[0]= read_I_out[0].Mag();
+		read_I_out_mag[1]= read_I_out[1].Mag();
+		read_I_out_mag[2]= read_I_out[2].Mag();
+
 		if (!is_open())
 		{
 			/* compute and update voltages */
