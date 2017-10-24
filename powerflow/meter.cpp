@@ -605,18 +605,7 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 				measured_avg_voltageD_mag_in_interval[0] = measured_voltageD[0].Mag();
 				measured_avg_voltageD_mag_in_interval[1] = measured_voltageD[1].Mag();
 				measured_avg_voltageD_mag_in_interval[2] = measured_voltageD[2].Mag();
-				last_measured_voltage[0] = voltageA;
-				last_measured_voltage[1] = voltageB;
-				last_measured_voltage[2] = voltageC;
-				last_measured_voltageD[0] = measured_voltageD[0];
-				last_measured_voltageD[1] = measured_voltageD[1];
-				last_measured_voltageD[2] = measured_voltageD[2];
-				last_measured_voltage_mag[0]=last_measured_voltage[0].Mag();
-				last_measured_voltage_mag[1]=last_measured_voltage[1].Mag();
-				last_measured_voltage_mag[2]=last_measured_voltage[2].Mag();
-				last_measured_voltageD_mag[0]=last_measured_voltageD[0].Mag();
-				last_measured_voltageD_mag[1]=last_measured_voltageD[1].Mag();
-				last_measured_voltageD_mag[2]=last_measured_voltageD[2].Mag();
+
 
 				if (tretval > last_delta_timestamp + TIMESTAMP(measured_energy_delta_timestep)) {
 					tretval = last_delta_timestamp + TIMESTAMP(measured_energy_delta_timestep);
@@ -644,12 +633,13 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 					last_measured_avg_voltageD_mag[0] = last_measured_voltageD[0].Mag();
 					last_measured_avg_voltageD_mag[1] = last_measured_voltageD[1].Mag();
 					last_measured_avg_voltageD_mag[2] = last_measured_voltageD[2].Mag();
-					last_measured_voltage_mag[0]=last_measured_voltage[0].Mag();
-					last_measured_voltage_mag[1]=last_measured_voltage[1].Mag();
-					last_measured_voltage_mag[2]=last_measured_voltage[2].Mag();
-					last_measured_voltageD_mag[0]=last_measured_voltage[0].Mag();
-					last_measured_voltageD_mag[1]=last_measured_voltage[1].Mag();
-					last_measured_voltageD_mag[2]=last_measured_voltage[2].Mag();
+					last_measured_voltage[0] = voltageA;
+				    last_measured_voltage[1] = voltageB;
+					last_measured_voltage[2] = voltageC;
+					last_measured_voltageD[0] = measured_voltageD[0];
+					last_measured_voltageD[1] = measured_voltageD[1];
+					last_measured_voltageD[2] = measured_voltageD[2];
+
 				} else {
 					if ( last_measured_voltage[0].Mag() > last_measured_max_voltage_mag[0].Mag()) {
 						last_measured_max_voltage_mag[0] = last_measured_voltage[0];

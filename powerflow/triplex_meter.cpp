@@ -462,9 +462,6 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 				last_measured_avg_voltage[0] = last_measured_voltage[0].Mag();
 				last_measured_avg_voltage[1] = last_measured_voltage[1].Mag();
 				last_measured_avg_voltage[2] = last_measured_voltage[2].Mag();
-				last_measured_voltage_mag[0] = last_measured_voltage[0].Mag();
-				last_measured_voltage_mag[1] = last_measured_voltage[1].Mag();
-				last_measured_voltage_mag[2] = last_measured_voltage[2].Mag();
 			} else {
 				if (last_measured_max_voltage[0].Mag() < last_measured_voltage[0].Mag()) {
 					last_measured_max_voltage[0] = last_measured_voltage[0];
@@ -489,9 +486,7 @@ TIMESTAMP triplex_meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 					last_measured_avg_voltage[1] = last_measured_avg_voltage[1] + ((last_measured_voltage[1].Mag() - last_measured_avg_voltage[1])/(i + interval_dt));
 					last_measured_avg_voltage[2] = last_measured_avg_voltage[2] + ((last_measured_voltage[2].Mag() - last_measured_avg_voltage[2])/(i + interval_dt));
 				}
-				last_measured_voltage_mag[0] = last_measured_voltage[0].Mag();
-				last_measured_voltage_mag[1] = last_measured_voltage[1].Mag();
-				last_measured_voltage_mag[2] = last_measured_voltage[2].Mag();
+
 			}
 			interval_count++;
 			interval_dt = interval_dt + dt;
