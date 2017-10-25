@@ -1101,7 +1101,7 @@ int fncs_msg::publishVariables(varmap *wmap){
 				{
 					if(mp->ctype == CT_PUBSUB){
 						key = string(mp->remote_name);
-#if HAVE_FNCS
+#if HAVE_FNCS  
 						fncs::publish(key, value);
 #endif
 					} else if(mp->ctype == CT_ROUTE){

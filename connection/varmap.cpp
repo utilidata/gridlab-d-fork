@@ -25,7 +25,8 @@ int varmap::add(char *spec, COMMUNICATIONTYPE comtype)
 		gl_error("varmap::add(char *spec='%s'): varmap spec is invalid", spec);
 		return 0;
 	}
-
+ 
+ 
 	// parse the direction
 	DATAEXCHANGEDIRECTION dxd;
 	if ( strcmp(dir,"<-")==0 ){
@@ -72,6 +73,7 @@ int varmap::add(char *spec, COMMUNICATIONTYPE comtype)
 		strcpy(next->remote_name,remName);
 		strcpy(next->threshold,threshold);
 	}
+
 	next->last_value = NULL;
 	next->obj = NULL;
 	next->next = map;
