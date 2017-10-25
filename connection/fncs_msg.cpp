@@ -62,6 +62,7 @@ fncs_msg::fncs_msg(MODULE *module)
 		PT_enumeration, "message_type", PADDR(message_type), PT_DESCRIPTION, "set the type of message format you wish to construct",
 			PT_KEYWORD, "GENERAL", enumeration(MT_GENERAL), PT_DESCRIPTION, "use this for sending a general fncs topic/value pair",
 			PT_KEYWORD, "JSON", enumeration(MT_JSON), PT_DESCRIPTION, "use this for wanting to send a bundled json formatted message in a single topic",
+                PT_int64, "delay_publish_time[s]", PADDR(delay_publish_time), PT_DESCRIPTION, "how long to delay publishing messages to fncs bus in seconds from the beginning of the simulation",
 			// PT_KEYWORD, "JSON_SB", enumeration(MT_JSON_SB), PT_DESCRIPTION, "use this for wanting to subsribe a bundled json formatted message in a single topic",
 		// TODO add published properties here
 		NULL)<1)
@@ -91,6 +92,7 @@ int fncs_msg::create(){
 	header_version = new string("");
 	hostname = new string("");
 	inFunctionTopics = new vector<string>();
+        delay_publish_time = 0;
 
 	return 1;
 }
@@ -504,10 +506,12 @@ int fncs_msg::precommit(TIMESTAMP t1){
 		//process external function calls
 		incoming_fncs_function();
 		//publish precommit variables
-		result = publishVariables(vmap[4]);
-		if(result == 0){
-			return result;
-		}
+                if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+		    result = publishVariables(vmap[4]);
+		    if(result == 0){
+		    	return result;
+		    }
+                }
 		//read precommit variables from cache
 		result = subscribeVariables(vmap[4]);
 		if(result == 0){
@@ -530,10 +534,12 @@ int fncs_msg::precommit(TIMESTAMP t1){
 TIMESTAMP fncs_msg::presync(TIMESTAMP t1){
 
 	int result = 0;
-	result = publishVariables(vmap[5]);
-	if(result == 0){
+        if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+	    result = publishVariables(vmap[5]);
+	    if(result == 0){
 		return TS_INVALID;
-	}
+	    }
+        }
 	//read presync variables from cache
 	result = subscribeVariables(vmap[5]);
 	if(result == 0){
@@ -545,10 +551,12 @@ TIMESTAMP fncs_msg::presync(TIMESTAMP t1){
 TIMESTAMP fncs_msg::plc(TIMESTAMP t1){
 
 	int result = 0;
-	result = publishVariables(vmap[12]);
-	if(result == 0){
+        if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+	    result = publishVariables(vmap[12]);
+	    if(result == 0){
 		return TS_INVALID;
-	}
+	    }
+        }
 	//read plc variables from cache
 	result = subscribeVariables(vmap[12]);
 	if(result == 0){
@@ -561,10 +569,12 @@ TIMESTAMP fncs_msg::sync(TIMESTAMP t1){
 
 	int result = 0;
 	TIMESTAMP t2;
-	result = publishVariables(vmap[6]);
-	if(result == 0){
+        if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+	    result = publishVariables(vmap[6]);
+	    if(result == 0){
 		return TS_INVALID;
-	}
+	    }
+        }
 	//read sync variables from cache
 	result = subscribeVariables(vmap[6]);
 	if(result == 0){
@@ -582,10 +592,12 @@ TIMESTAMP fncs_msg::sync(TIMESTAMP t1){
 TIMESTAMP fncs_msg::postsync(TIMESTAMP t1){
 
 	int result = 0;
-	result = publishVariables(vmap[7]);
-	if(result == 0){
+        if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+	    result = publishVariables(vmap[7]);
+	    if(result == 0){
 		return TS_INVALID;
-	}
+	    }
+        }
 	//read postsync variables from cache
 	result = subscribeVariables(vmap[7]);
 	if(result == 0){
@@ -597,10 +609,12 @@ TIMESTAMP fncs_msg::postsync(TIMESTAMP t1){
 TIMESTAMP fncs_msg::commit(TIMESTAMP t0, TIMESTAMP t1){
 
 	int result = 0;
-	result = publishVariables(vmap[8]);
-	if(result == 0){
+        if(t1 >= (initial_sim_time + (TIMESTAMP)delay_publish_time)) {
+	    result = publishVariables(vmap[8]);
+	    if(result == 0){
 		return TS_INVALID;
-	}
+	    }
+        }
 
 	// publish json_configure variables, renke
 	// TODO

@@ -152,6 +152,7 @@ public:
 	string publish_json_key; //add by Renke
 	string subscribe_json_key; //add by Renke
 	vector <JsonProperty*> vjson_publish_gld_property_name;
+        unsigned int64 delay_publish_time;
 public:
 	// special variables for GridLAB-D classes
 	static CLASS *oclass;
