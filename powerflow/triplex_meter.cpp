@@ -307,6 +307,7 @@ TIMESTAMP triplex_meter::sync(TIMESTAMP t0)
 {
 	int TempNodeRef;
 
+
 	//Reliability check
 	if ((fault_check_object != NULL) && (solver_method == SM_NR))	//proper solver fault_check is present (so might need to set flag
 	{
@@ -333,6 +334,12 @@ TIMESTAMP triplex_meter::sync(TIMESTAMP t0)
 			tpmeter_interrupted = false;	//All is well
 		}
 	}
+ 
+   // if status is OUT_OF_SERVICE // BAD CODE, very temporary for Oct 2017
+	if (service_status == ND_OUT_OF_SERVICE)
+		tpmeter_interrupted = true;
+	else
+		tpmeter_interrupted = false;
 
 	if (tpmeter_power_consumption != complex(0,0))
 	{
