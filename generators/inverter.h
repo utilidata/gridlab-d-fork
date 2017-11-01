@@ -94,6 +94,10 @@ private:
 	complex *PGenerated;				//Link to bus PGenerated field - mainly used for SWING generator
 	complex *IGenerated;				//Link to direct current injections to powerflow at bus-level
 	complex generator_admittance[3][3];	//Generator admittance matrix converted from sequence values
+	complex prev_VA_out[3];				//Previous state tracking variable for ramp-rate calculations
+	complex curr_VA_out[3];				//Current state tracking variable for ramp-rate calculations
+	double Pref_prev;					//Previous Pref value in the same time step for non-VSI droop mode ramp-rate calculations
+	double Qref_prev[3];				//Previous Qref value in the same time step for non-VSI droop mode ramp-rate calculations
 
 protected:
 	/* TODO: put unpublished but inherited variables */
@@ -199,6 +203,13 @@ public:
 	complex e_source[3]; 	  // Voltage source behind the filter
 	double Tp_delay;	  // Time delay for feeder real power changes seen by inverter droop control
 	double Tq_delay;	  // Time delay for feeder reactive power changes seen by inverter droop control
+
+	bool checkRampRate_real;		//Flag to enable ramp rate/slew rate checking for active power
+	double rampUpRate_real;		//Maximum power increase rate for active power
+	double rampDownRate_real;		//Maximum power decrease rate for active power
+	bool checkRampRate_reactive;	//Flag to enable ramp rate/slew rate checking for reactive power
+	double rampUpRate_reactive;		//Maximum power increase rate for reactive power
+	double rampDownRate_reactive;	//Maximum power decrease rate for reactive power
 
 	complex phaseA_I_Out_prev;      // current
 	complex phaseB_I_Out_prev;
@@ -334,6 +345,21 @@ public:
 	double over_voltage_low_viol_time;				//Lowest high voltage threshold violation accumulator
 	double over_voltage_high_viol_time;				//Highest high voltage threshold violation accumulator
 
+	typedef enum {
+		IEEE_1547_NONE=0,		/**< No trip reason */
+		IEEE_1547_HIGH_OF=1,	/**< High over-frequency level trip */
+		IEEE_1547_LOW_OF=2,		/**< Low over-frequency level trip */
+		IEEE_1547_HIGH_UF=3,	/**< High under-frequency level trip */
+		IEEE_1547_LOW_UF=4,		/**< Low under-frequency level trip */
+		IEEE_1547_LOWEST_UV=5,	/**< Lowest under-voltage level trip */
+		IEEE_1547_MIDDLE_UV=6,	/**< Middle under-voltage level trip */
+		IEEE_1547_HIGH_UV=7,	/**< High under-voltage level trip */
+		IEEE_1547_LOW_OV=8,		/**< Low over-voltage level trip */
+		IEEE_1547_HIGH_OV=9		/**< High over-voltage level trip */
+	};
+
+	enumeration ieee_1547_trip_method;
+
 	//properties for four quadrant volt/var frequency power mode
 	bool disable_volt_var_if_no_input_power;		//if true turn off Volt/VAr behavior when no input power (i.e. at night for a solar system)
 	double delay_time;				//delay time time between seeing a voltage value and responding with appropiate VAr setting (seconds)
@@ -358,7 +384,8 @@ private:
 	TIMESTAMP pf_reg_next_update_time;	//TIMESTAMP of next dispatching change allowed
 
 	TIMESTAMP prev_time;				//Tracking variable for previous "new time" run
-	double prev_time_dbl;				//Tracking variable for 1547 checks
+	double prev_time_dbl;				//Tracking variable for 1547 checks and ramp rates
+	double event_deltat;				//Event-driven delta-t variable
 
 	TIMESTAMP start_time;				//Recording start time of simulation
 
@@ -398,6 +425,7 @@ public:
 	double perform_1547_checks(double timestepvalue);
 	STATUS updateCurrInjection();
 	complex check_VA_Out(complex temp_VA, double p_max);
+	double getEff(double val);
 public:
 	static CLASS *oclass;
 	static inverter *defaults;

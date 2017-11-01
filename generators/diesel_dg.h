@@ -25,6 +25,11 @@ typedef struct {
 
 	double xfd; 			// State variable for PI control of the Q constant mode
 
+//	double x_cvr;			// State variable for PI controller for CVR control
+//	double xerr_cvr;		// State variable for PID controller for CVR control
+	double x_cvr1;			// State variable for PI controller for CVR control
+	double x_cvr2;			// State variable for PI controller for CVR control
+	double diff_f;			// Difference between measured and reference frequency
 } AVR_VARS;
 
 //GOV_DEGOV1 state variable structure
@@ -85,10 +90,23 @@ typedef struct {
 	double err7;
 	double LowValSelect1;
 	double LowValSelect;
-
-	double x_Pconstant;		// state varibale of Pconstant mode in GGOV1
-
 } GOV_GGOV1_VARS;
+
+// P_CONSTANT mode state variable structure
+typedef struct {
+	double x1;
+	double x4;
+	double x4a;
+	double x4b;
+	double x5;
+	double x5a;
+	double x5b;
+	double err4;
+	double ValveStroke;
+	double FuelFlow;
+	double GovOutPut;
+	double x_Pconstant;
+} GOV_P_CONSTANT_VARS;
 
 //Machine state variable structure
 typedef struct {
@@ -108,6 +126,7 @@ typedef struct {
 	GOV_DEGOV1_VARS gov_degov1;	//DEGOV1 Governor state variables
 	GOV_GAST_VARS gov_gast;		//GAST Governor state variables
 	GOV_GGOV1_VARS gov_ggov1;	//GGOV1 governor state variables
+	GOV_P_CONSTANT_VARS gov_pconstant; //P_CONSTANT mode state variables
 	AVR_VARS avr;				//Automatic Voltage Regulator state variables
 } MAC_STATES;
 
@@ -115,6 +134,10 @@ typedef struct {
 typedef struct {
 	double wref;	//Reference frequency/bias for generator object (governor)
 	double vset;	//Reference per-unit voltage/bias for generator object (AVR)
+	double vseta;	//Reference per-unit voltage/bias for generator object (AVR) before going into bound check
+	double vsetb;	//Reference per-unit voltage/bias for generator object (AVR) after going into bound check
+	double vadd;	//Additioal value added to the field voltage before going into the bound
+	double vadd_a;	//Additioal value added to the field voltage before going into the bound before going into bound check
 	double Pref;	//Reference real power output/bias (per-unit) for generator object (governor)
 	double Qref;	//Reference reactive power output/bias (per-unit) for generator object (AVR)
 } MAC_INPUTS;
@@ -294,6 +317,7 @@ public:
 	complex X2;				//Negative sequence impedance (p.u.)
 
 	MAC_INPUTS gen_base_set_vals;	//Base set points for the various control objects
+	bool Vset_defined;				// Flag indicating whether Vset has been defined in glm file or not
 
 	//AVR properties (Simplified Exciter System (SEXS) - Industry acronym, I swear)
 	double exc_KA;				//Exciter gain (p.u.)
@@ -311,6 +335,31 @@ public:
 	double ki_Qconstant;		// ki for the PI controller implemented in Q constant delta mode
 	double kp_Qconstant;		// kp for the PI controller implemented in Q constant delta mode
 	
+
+	// parameters related to CVR control in AVR
+	bool CVRenabled;				// Flag indicating whether CVR control is enabled or not inside the exciter
+	double ki_cvr;					// Integral gain for PI/PID controller of the CVR control
+	double kp_cvr;					// Proportional gain for PI/PID controller of the CVR control
+	double kd_cvr; 					// Deviation gain for PID controller of the CVR control
+	double kt_cvr;					// Gain for feedback loop in CVR control
+	double kw_cvr;	 				// Gain for feedback loop in CVR control
+	bool CVR_PI;					// Flag indicating CVR implementation is using PI controller
+	bool CVR_PID;					// Flag indicating CVR implementation is using PID controller
+	double vset_EMAX;				// Vset uppper limit
+	double vset_EMIN;				// Vset lower limit
+	double Vref;					// vset initial value before entering transient
+	double Kd1;						// Parameter of second order transfer function
+	double Kd2;						// Parameter of second order transfer function
+	double Kd3;						// Parameter of second order transfer function
+	double Kn1;						// Parameter of second order transfer function
+	double Kn2;						// Parameter of second order transfer function
+	double vset_delta_MAX;			// Delta Vset uppper limit
+	double vset_delta_MIN;			// Delta Vset lower limit
+
+	//CVR mode choices
+	enum {HighOrder=1, Feedback};
+	enumeration CVRmode;
+
 	//Governor properties (DEGOV1)
 	double gov_degov1_R;				//Governor droop constant (p.u.)
 	double gov_degov1_T1;				//Governor electric control box time constant (s)
@@ -374,6 +423,40 @@ public:
 
 	set phases;	/**< device phases (see PHASE codes) */
 
+	// P_CONSTANT mode properties
+	double pconstant_Tpelec;		//Electrical power transducer time constant, sec. (>0.)
+	double pconstant_Tact;			//Actuator time constant
+	double pconstant_Kturb;			//Turbine gain (>0.)
+	double pconstant_wfnl;			//No load fuel flow, p.u
+	double pconstant_Tb;			//Turbine lag time constant, sec. (>0.)
+	double pconstant_Tc;			//Turbine lead time constant, sec.
+	double pconstant_Teng;			//Transport lag time constant for diesel engine
+	double pconstant_ropen;			//Maximum valve opening rate, p.u./sec.
+	double pconstant_rclose;		//Minimum valve closing rate, p.u./sec.
+	double pconstant_Kimw;			//Power controller (reset) gain
+	unsigned int pconstant_Flag;	//Switch for fuel source characteristic, = 0 for fuel flow independent of speed, = 1 fuel flow proportional to speed
+
+	// Fuel useage and emmisions
+	bool fuelEmissionCal;		// Boolean value indicating whether calculation of fuel and emissions are enabled
+	double outputEnergy;		// Total energy(kWh) output from the generator
+	double FuelUse;				// Total fuel usage (gal) based on kW power output
+	double efficiency;			// Total energy output per fuel usage (kWh/gal)
+	double CO2_emission;		// Total CO2 emissions (lbs) based on fule usage
+	double SOx_emission;		// Total SOx emissions (lbs) based on fule usage
+	double NOx_emission;		// Total NOx emissions (lbs) based on fule usage
+	double PM10_emission;		// Total PM-10 emissions (lbs) based on fule usage
+	TIMESTAMP last_time;
+	double dg_1000_a = 0.067;	// Parameter to calculate fuel usage (gal)based on VA power output (for 1000 kVA rating dg)
+	double dg_1000_b = 6.5544;	// Parameter to calculate fuel usage (gal)based on VA power output (for 1000 kVA rating dg)
+
+	// Relationship between frequency deviation and real power changes
+	double frequency_deviation;
+	double frequency_deviation_energy;
+	double frequency_deviation_max;
+	double realPowerChange;
+	double ratio_f_p;
+	double pwr_electric_init;
+
 public:
 	/* required implementations */
 	diesel_dg(MODULE *module);
@@ -396,6 +479,7 @@ public:
 	STATUS apply_dynamics(MAC_STATES *curr_time, MAC_STATES *curr_delta, double deltaT);
 	STATUS init_dynamics(MAC_STATES *curr_time);
 	complex complex_exp(double angle);
+	double abs_complex(complex val);
 
 	friend class controller_dg;
 

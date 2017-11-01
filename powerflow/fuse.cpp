@@ -257,7 +257,7 @@ int fuse::init(OBJECT *parent)
 			From_Y[2][2] = complex(0.0,0.0);
 
 			phase_A_state = phase_B_state = phase_C_state = BLOWN;	//All open
-			prev_full_status = 0x00;								//Confirm here
+			phased_fuse_status = 0x00;								//Confirm here
 		}
 		else	//LS_CLOSED - handle individually
 		{
@@ -266,12 +266,12 @@ int fuse::init(OBJECT *parent)
 				if (phase_A_state == GOOD)
 				{
 					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
-					prev_full_status |= 0x04;
+					phased_fuse_status |= 0x04;
 				}
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
-					prev_full_status &=0xFB;
+					phased_fuse_status &=0xFB;
 				}
 			}
 
@@ -280,12 +280,12 @@ int fuse::init(OBJECT *parent)
 				if (phase_B_state == GOOD)
 				{
 					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
-					prev_full_status |= 0x02;
+					phased_fuse_status |= 0x02;
 				}
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
-					prev_full_status &=0xFD;
+					phased_fuse_status &=0xFD;
 				}
 			}
 
@@ -294,12 +294,12 @@ int fuse::init(OBJECT *parent)
 				if (phase_C_state == GOOD)
 				{
 					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
-					prev_full_status |= 0x01;
+					phased_fuse_status |= 0x01;
 				}
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
-					prev_full_status &=0xFE;
+					phased_fuse_status &=0xFE;
 				}
 			}
 		}
@@ -315,7 +315,7 @@ int fuse::init(OBJECT *parent)
 	}
 
 	//Store fuse status - will get updated as things change later
-	phased_fuse_status = prev_full_status;
+	prev_full_status = phased_fuse_status;
 
 	//Check trip rating
 	if (Itrip <= 0.0)
@@ -347,7 +347,6 @@ int fuse::init(OBJECT *parent)
 	t_return_array[0] = t_return_array[1] = t_return_array[2] = TS_NEVER;
 	curr_past[0] = curr_past[1] = curr_past[2] = 0.0;
 	t_past[0] = t_past[1] = t_past[2] = TS_NEVER;
-
 
 	return result;
 }
@@ -1171,6 +1170,7 @@ void fuse::fuse_sync_function(void)
 
 			phase_A_state = phase_B_state = phase_C_state = BLOWN;	//All open
 			NR_branchdata[NR_branch_reference].phases &= 0xF0;		//Remove all our phases
+			
 			if (meshed_fault_checking_enabled==true)	//Different operating mode
 			{
 				NR_branchdata[NR_branch_reference].faultphases = NR_branchdata[NR_branch_reference].origphases & 0x07;
@@ -1185,19 +1185,31 @@ void fuse::fuse_sync_function(void)
 				{
 					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x04;
-					NR_branchdata[NR_branch_reference].phases |= 0x04;	//Ensure we're set
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x04) != 0x04)
 					{
-						NR_branchdata[NR_branch_reference].faultphases &= 0xFB;	//Make sure we're NOT set
+						NR_branchdata[NR_branch_reference].phases |= 0x04;	//Ensure we're set
+
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases &= 0xFB;	//Make sure we're NOT set
+						}
 					}
 				}
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
-					NR_branchdata[NR_branch_reference].phases &= 0xFB;	//Make sure we're removed
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x04) != 0x00)
 					{
-						NR_branchdata[NR_branch_reference].faultphases |= 0x04;	//Make sure fault condition is set
+						NR_branchdata[NR_branch_reference].phases &= 0xFB;	//Make sure we're removed
+
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases |= 0x04;	//Make sure fault condition is set
+						}
 					}
 				}
 			}
@@ -1208,19 +1220,30 @@ void fuse::fuse_sync_function(void)
 				{
 					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x02;
-					NR_branchdata[NR_branch_reference].phases |= 0x02;	//Ensure we're set
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x02) != 0x02)
 					{
-						NR_branchdata[NR_branch_reference].faultphases &= 0xFD;	//Make sure we're NOT set
+						NR_branchdata[NR_branch_reference].phases |= 0x02;	//Ensure we're set
+
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases &= 0xFD;	//Make sure we're NOT set
+						}
 					}
 				}
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
-					NR_branchdata[NR_branch_reference].phases &= 0xFD;	//Make sure we're removed
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x02) != 0x00)
 					{
-						NR_branchdata[NR_branch_reference].faultphases |= 0x02;	//Make sure fault condition is set
+						NR_branchdata[NR_branch_reference].phases &= 0xFD;	//Make sure we're removed
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases |= 0x02;	//Make sure fault condition is set
+						}
 					}
 				}
 			}
@@ -1231,19 +1254,31 @@ void fuse::fuse_sync_function(void)
 				{
 					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
 					pres_status |= 0x01;
-					NR_branchdata[NR_branch_reference].phases |= 0x01;	//Ensure we're set
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x01) != 0x01)
 					{
-						NR_branchdata[NR_branch_reference].faultphases &= 0xFE;	//Make sure we're NOT set
+						NR_branchdata[NR_branch_reference].phases |= 0x01;	//Ensure we're set
+
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases &= 0xFE;	//Make sure we're NOT set
+						}
 					}
 				}
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
-					NR_branchdata[NR_branch_reference].phases &= 0xFE;	//Make sure we're removed
-					if (meshed_fault_checking_enabled==true)	//Different operating mode
+
+					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
+					if ((prev_full_status & 0x01) != 0x00)
 					{
-						NR_branchdata[NR_branch_reference].faultphases |= 0x01;	//Make sure fault condition is set
+						NR_branchdata[NR_branch_reference].phases &= 0xFE;	//Make sure we're removed
+
+						if (meshed_fault_checking_enabled==true)	//Different operating mode
+						{
+							NR_branchdata[NR_branch_reference].faultphases |= 0x01;	//Make sure fault condition is set
+						}
 					}
 				}
 			}

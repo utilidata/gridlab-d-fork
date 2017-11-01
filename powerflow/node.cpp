@@ -200,6 +200,13 @@ node::node(MODULE *mod) : powerflow_object(mod)
 			PT_double, "GFA_volt_disconnect_time[s]", PADDR(GFA_volt_disconnect_time), PT_DESCRIPTION, "Voltage violation disconnect time for Grid Friendly Appliance(TM)-type functionality",
 			PT_bool, "GFA_status", PADDR(GFA_status), PT_DESCRIPTION, "Low frequency trip point for Grid Friendly Appliance(TM)-type functionality",
 
+			PT_enumeration, "GFA_trip_method", PADDR(GFA_trip_method), PT_DESCRIPTION, "Reason for GFA trip - what caused the GFA to activate",
+				PT_KEYWORD, "NONE", (enumeration)GFA_NONE, PT_DESCRIPTION, "No GFA trip",
+				PT_KEYWORD, "UNDER_FREQUENCY", (enumeration)GFA_UF, PT_DESCRIPTION, "GFA trip for under-frequency",
+				PT_KEYWORD, "OVER_FREQUENCY", (enumeration)GFA_OF, PT_DESCRIPTION, "GFA trip for over-frequency",
+				PT_KEYWORD, "UNDER_VOLTAGE", (enumeration)GFA_UV, PT_DESCRIPTION, "GFA trip for under-voltage",
+				PT_KEYWORD, "OVER_VOLTAGE", (enumeration)GFA_OV, PT_DESCRIPTION, "GFA trip for over-voltage",
+
 			PT_object, "topological_parent", PADDR(TopologicalParent),PT_DESCRIPTION,"topological parent as per GLM configuration",
 			NULL) < 1) GL_THROW("unable to publish properties in %s",__FILE__);
 
@@ -329,6 +336,7 @@ int node::create(void)
 	GFA_status = true;
 	prev_time_dbl = 0.0;				//Tracking variable
 	GFA_Update_time = 0.0;
+	GFA_trip_method = GFA_NONE;		//By default, not tripped
 
 	//VFD-related additional functionality
 	VFD_attached = false;	//Not connected to a VFD
@@ -1449,7 +1457,7 @@ TIMESTAMP node::presync(TIMESTAMP t0)
 	{
 		if (prev_NTime==0)	//First run, if we are a child, make sure no one linked us before we knew that
 		{
-			if (((SubNode == CHILD) || (SubNode == DIFF_CHILD)) && (NR_connected_links>0))
+			if (((SubNode == CHILD) || (SubNode == DIFF_CHILD)) && (NR_connected_links[0] > 0))
 			{
 				node *parNode = OBJECTDATA(SubNodeParent,node);
 
@@ -1460,17 +1468,11 @@ TIMESTAMP node::presync(TIMESTAMP t0)
 				//Zero our accumulator, just in case (used later)
 				NR_connected_links[0] = 0;
 
-				//Check and see if we're a house-triplex.  If so, flag our parent so NR works
-				if (house_present==true)
-				{
-					parNode->house_present=true;
-				}
-
 				WRITEUNLOCK_OBJECT(SubNodeParent);	//Unlock
 			}
 
 			//See if we need to alloc our child space
-			if (NR_number_child_nodes[0]>0)	//Malloc it up
+			if (NR_number_child_nodes[0] > 0)	//Malloc it up
 			{
 				NR_child_nodes = (node**)gl_malloc(NR_number_child_nodes[0] * sizeof(node*));
 
@@ -1496,6 +1498,12 @@ TIMESTAMP node::presync(TIMESTAMP t0)
 				node *parNode = OBJECTDATA(SubNodeParent,node);
 
 				WRITELOCK_OBJECT(SubNodeParent);	//Lock
+
+				//Check and see if we're a house-triplex.  If so, flag our parent so NR works - just draconian write (won't hurt anything)
+				if (house_present==true)
+				{
+					parNode->house_present=true;
+				}
 
 				//Make sure there's still room
 				if (parNode->NR_number_child_nodes[1]>=parNode->NR_number_child_nodes[0])
@@ -4478,6 +4486,9 @@ double node::perform_GFA_checks(double timestepvalue)
 			{
 				trigger_disconnect = true;
 				return_time_freq = GFA_reconnect_time;
+
+				//Flag us as over frequency
+				GFA_trip_method = GFA_OF;
 			}
 			else
 			{
@@ -4491,6 +4502,9 @@ double node::perform_GFA_checks(double timestepvalue)
 			{
 				trigger_disconnect = true;
 				return_time_freq = GFA_reconnect_time;
+
+				//Flag as under-frequency
+				GFA_trip_method = GFA_UF;
 			}
 			else
 			{
@@ -4582,6 +4596,9 @@ double node::perform_GFA_checks(double timestepvalue)
 					{
 						trigger_disconnect = true;
 						return_time_volt = GFA_reconnect_time;
+
+						//Flag us as under-voltage
+						GFA_trip_method = GFA_UV;
 					}
 					else
 					{
@@ -4595,6 +4612,9 @@ double node::perform_GFA_checks(double timestepvalue)
 					{
 						trigger_disconnect = true;
 						return_time_volt = GFA_reconnect_time;
+
+						//Flag us as over-voltage
+						GFA_trip_method = GFA_OV;
 					}
 					else
 					{
@@ -4669,6 +4689,9 @@ double node::perform_GFA_checks(double timestepvalue)
 			//Set us back into service
 			GFA_status = true;
 
+			//Reset us back to no violation
+			GFA_trip_method = GFA_NONE;
+
 			//Implies no violations, so force return a -1.0
 			return -1.0;
 		}
@@ -4694,6 +4717,9 @@ double node::perform_GFA_checks(double timestepvalue)
 		}
 		else
 		{
+			//Re-affirm we are not having any issues
+			GFA_trip_method = GFA_NONE;
+
 			//All is well, indicate as much
 			return return_value;
 		}
