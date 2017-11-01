@@ -336,10 +336,13 @@ TIMESTAMP triplex_meter::sync(TIMESTAMP t0)
 	}
  
    // if status is OUT_OF_SERVICE // BAD CODE, very temporary for Oct 2017
+	if (tpmeter_interrupted != true) // check if already off due to reliability. if yes, don't worry about this
+	{
 	if (service_status == ND_OUT_OF_SERVICE)
 		tpmeter_interrupted = true;
 	else
 		tpmeter_interrupted = false;
+	}
 
 	if (tpmeter_power_consumption != complex(0,0))
 	{
