@@ -314,39 +314,42 @@ int fuse::init(OBJECT *parent)
 		*/
 	}
 
-	//Store fuse status - will get updated as things change later
-	prev_full_status = phased_fuse_status;
-
-	//Check trip rating
-	if (Itrip <= 0.0)
+	if (meshed_fault_checking_enabled == true)
 	{
-		Itrip = 9999.0;	//Set to arbitrary large value
+		//Store fuse status - will get updated as things change later
+		prev_full_status = phased_fuse_status;
 
-		gl_warning("fuse:%s did not have a trip current rating - set to 9999.9 Amps",(obj->name ? obj->name : "Unnamed"));
-		/*  TROUBLESHOOT
-		A fuse had an Itrip value not set correctly.  This would cause problems, so a placeholder value of
-		9999.0 Amps is used.  Please adjust this value accordingly.
-		*/
+		//Check trip rating
+		if (Itrip <= 0.0)
+		{
+			Itrip = 9999.0;	//Set to arbitrary large value
+
+			gl_warning("fuse:%s did not have a trip current rating - set to 9999.9 Amps",(obj->name ? obj->name : "Unnamed"));
+			/*  TROUBLESHOOT
+			A fuse had an Itrip value not set correctly.  This would cause problems, so a placeholder value of
+			9999.0 Amps is used.  Please adjust this value accordingly.
+			*/
+		}
+
+		// Give initial values to fuse operation variables:
+		Flag_open = false;
+		t_fault = TS_NEVER;
+		t_open = TS_NEVER;
+		replacement_time = TS_NEVER;
+		Iseen[0] = Iseen[1] = Iseen[2] = 0;
+		fuse_fixed = false;
+		fix_phases = 0x00;
+		prev_status = status;
+
+		// Variables related to energy-based implememtation
+		isMelt[0] = isMelt[1] = isMelt[2] = false;
+		E_accumulated[0] = E_accumulated[1] = E_accumulated[2] = 0.0;
+		E_melt[0] = E_melt[1] = E_melt[2] = 0.0;
+		E_clear[0] = E_clear[1] = E_clear[2] = 0.0;
+		t_return_array[0] = t_return_array[1] = t_return_array[2] = TS_NEVER;
+		curr_past[0] = curr_past[1] = curr_past[2] = 0.0;
+		t_past[0] = t_past[1] = t_past[2] = TS_NEVER;
 	}
-
-	// Give initial values to fuse operation variables:
-	Flag_open = false;
-	t_fault = TS_NEVER;
-	t_open = TS_NEVER;
-	replacement_time = TS_NEVER;
-	Iseen[0] = Iseen[1] = Iseen[2] = 0;
-	fuse_fixed = false;
-	fix_phases = 0x00;
-	prev_status = status;
-
-	// Variables related to energy-based implememtation
-	isMelt[0] = isMelt[1] = isMelt[2] = false;
-	E_accumulated[0] = E_accumulated[1] = E_accumulated[2] = 0.0;
-	E_melt[0] = E_melt[1] = E_melt[2] = 0.0;
-	E_clear[0] = E_clear[1] = E_clear[2] = 0.0;
-	t_return_array[0] = t_return_array[1] = t_return_array[2] = TS_NEVER;
-	curr_past[0] = curr_past[1] = curr_past[2] = 0.0;
-	t_past[0] = t_past[1] = t_past[2] = TS_NEVER;
 
 	return result;
 }
@@ -354,7 +357,9 @@ int fuse::init(OBJECT *parent)
 TIMESTAMP fuse::sync(TIMESTAMP t0)
 {
 	OBJECT *obj = OBJECTHDR(this);
+	unsigned char work_phases;
 	bool fuse_blew;
+	TIMESTAMP replacement_duration;
 	TIMESTAMP t2;
 	char fault_val[9];
 	int result_val;
@@ -401,518 +406,797 @@ TIMESTAMP fuse::sync(TIMESTAMP t0)
 		event_schedule_map_attempt = true;
 	}
 
+	//Update time variable
+	if (prev_fuse_time != t0)	//New timestep
+		prev_fuse_time = t0;
+
 	//Code below only applies to NR right now - FBS legacy code has no sync values
 	//May need to be appropriately adjusted once FBS supports reliability
 	if (solver_method == SM_NR)
 	{
-		/**
-		* Fix the fuse
-		*/
-		//Only needs to be done if reliability isn't present, or we're in the "other method"
-		if ((event_schedule == NULL) || (meshed_fault_checking_enabled == true))
+		//See if we should use the new method or not (default to not, so older code works)
+		if (meshed_fault_checking_enabled == false)	//Old fuse type
 		{
 			//Put any fuses back in service, if they're ready
-			fix_fuse_function(t0);
+			if (((fix_time[0] <= t0) || (fix_time[1] <= t0) || (fix_time[2] <= t0)) && (event_schedule == NULL))	//Only needs to be done if reliability isn't present
+			{
+				//Bring the phases back that are necessary
+				if ((fix_time[0] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x04) == 0x04))	//Phase A ready and had a phase A
+				{
+					//Update status
+					phase_A_state = GOOD;
 
-		}//End no event_gen or mesh method
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[0] = TS_NEVER;	//Reset variables
+				}
+
+				if ((fix_time[1] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x02) == 0x02))	//Phase B ready and had a phase B
+				{
+					//Update status
+					phase_B_state = GOOD;
+
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[1] = TS_NEVER;	//Reset variables
+				}
+
+				if ((fix_time[2] <= t0) && ((NR_branchdata[NR_branch_reference].origphases & 0x01) == 0x01))	//Phase C ready and had a phase C
+				{
+					//Update status
+					phase_C_state = GOOD;
+
+					//Pop in the variables for the reliability update (if it exists)
+					fix_time[2] = TS_NEVER;	//Reset variables
+				}
+			}//End back in service
+
+			//Call syncing function
+			fuse_sync_function();
+
+			//Call overlying link sync
+			t2=link_object::sync(t0);
+
+			//Always execute check code now
+			//Start with no assumed outages
+			fuse_blew = false;
+			work_phases = 0x00;
+			replacement_time = 0;
+
+			//Check them
+			if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//Phase A valid - check it
+			{
+				//Link::sync is where current in is calculated.  Convert the values
+				current_current_values[0] = current_in[0].Mag();
+
+				if ((current_current_values[0] > current_limit) && (phase_A_state == GOOD))
+				{
+					phase_A_state = BLOWN;	//Blow the fuse
+					gl_warning("Phase A of fuse:%s just blew!",obj->name);
+					/*  TROUBLESHOOT
+					The current through phase A of the fuse just exceeded the maximum rated value.
+					Use a larger value, or otherwise change your system and try again.
+					*/
+
+					fuse_blew = true;		//Flag a change
+					work_phases |= 0x04;	//Flag A change
+
+					//See if an update is needed (it's A and first, so yes, but just to be generic)
+					if (replacement_time == 0)
+					{
+						//Get length of outage
+						if (restore_dist_type == EXPONENTIAL)
+						{
+							//Update mean repair time
+							mean_repair_time = gl_random_exponential(RNGSTATE,1.0/mean_replacement_time);
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+						else
+						{
+							//Update mean repair time - fuse always overrides link
+							mean_repair_time = mean_replacement_time;
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+
+						//Figure out when it is
+						replacement_time = prev_fuse_time + replacement_duration;
+					}
+				}
+				//Else is leave as is - either blown, or reliability hit it
+			}
+
+			if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//Phase B valid - check it
+			{
+				//Link::sync is where current in is calculated.  Convert the values
+				current_current_values[1] = current_in[1].Mag();
+
+				if ((current_current_values[1] > current_limit) && (phase_B_state == GOOD))
+				{
+					phase_B_state = BLOWN;	//Blow the fuse
+
+					gl_warning("Phase B of fuse:%s just blew!",obj->name);
+					/*  TROUBLESHOOT
+					The current through phase B of the fuse just exceeded the maximum rated value.
+					Use a larger value, or otherwise change your system and try again.
+					*/
+
+					fuse_blew = true;		//Flag a change
+					work_phases |= 0x02;	//Flag B change
+
+					//See if an update is needed
+					if (replacement_time == 0)
+					{
+						//Get length of outage
+						if (restore_dist_type == EXPONENTIAL)
+						{
+							//Update mean repair time
+							mean_repair_time = gl_random_exponential(RNGSTATE,1.0/mean_replacement_time);
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+						else
+						{
+							//Update mean repair time - fuse always overrides link
+							mean_repair_time = mean_replacement_time;
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+
+						//Figure out when it is
+						replacement_time = prev_fuse_time + replacement_duration;
+					}
+				}
+				//Else is leave as is - either blown, or reliability hit it
+			}
+
+			if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//Phase C valid - check it
+			{
+				//Link::sync is where current in is calculated.  Convert the values
+				current_current_values[2] = current_in[2].Mag();
+
+				if ((current_current_values[2] > current_limit) && (phase_C_state == GOOD))
+				{
+					phase_C_state = BLOWN;	//Blow the fuse
+
+					gl_warning("Phase C of fuse:%s just blew!",obj->name);
+					/*  TROUBLESHOOT
+					The current through phase C of the fuse just exceeded the maximum rated value.
+					Use a larger value, or otherwise change your system and try again.
+					*/
+
+					fuse_blew = true;		//Flag a change
+					work_phases |= 0x01;	//Flag C change
+
+					//See if an update is needed
+					if (replacement_time == 0)
+					{
+						//Get length of outage
+						if (restore_dist_type == EXPONENTIAL)
+						{
+							//Update mean repair time
+							mean_repair_time = gl_random_exponential(RNGSTATE,1.0/mean_replacement_time);
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+						else
+						{
+							//Update mean repair time - fuse always overrides link
+							mean_repair_time = mean_replacement_time;
+							replacement_duration = (TIMESTAMP)(mean_repair_time);
+						}
+
+						//Figure out when it is
+						replacement_time = prev_fuse_time + replacement_duration;
+					}
+				}
+				//Else is leave as is - either blown, or reliability hit it
+			}
+
+			if (fuse_blew == true)
+			{
+				//Set up fault type
+				fault_val[0] = 'F';
+				fault_val[1] = 'U';
+				fault_val[2] = 'S';
+				fault_val[3] = '-';
+
+				//Determine who blew and store the time (assumes fuses can be replaced in parallel)
+				switch (work_phases)
+				{
+				case 0x00:	//No fuses blown !??
+					GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
+					/*  TROUBLESHOOT
+					A fuse reported an over-current condition and blew the appropriate link.  However, it did not appear
+					to fully propogate this condition.  Please try again.  If the error persists, please submit your code
+					and a bug report via the trac website.
+					*/
+					break;
+				case 0x01:	//Phase C blew
+					fix_time[2] = replacement_time;
+					fault_val[4] = 'C';
+					fault_val[5] = '\0';
+					break;
+				case 0x02:	//Phase B blew
+					fix_time[1] = replacement_time;
+					fault_val[4] = 'B';
+					fault_val[5] = '\0';
+					break;
+				case 0x03:	//Phase B and C blew
+					fix_time[1] = replacement_time;
+					fix_time[2] = replacement_time;
+					fault_val[4] = 'B';
+					fault_val[5] = 'C';
+					fault_val[6] = '\0';
+					break;
+				case 0x04:	//Phase A blew
+					fix_time[0] = replacement_time;
+					fault_val[4] = 'A';
+					fault_val[5] = '\0';
+					break;
+				case 0x05:	//Phase A and C blew
+					fix_time[0] = replacement_time;
+					fix_time[2] = replacement_time;
+					fault_val[4] = 'A';
+					fault_val[5] = 'C';
+					fault_val[6] = '\0';
+					break;
+				case 0x06:	//Phase A and B blew
+					fix_time[0] = replacement_time;
+					fix_time[1] = replacement_time;
+					fault_val[4] = 'A';
+					fault_val[5] = 'B';
+					fault_val[6] = '\0';
+					break;
+				case 0x07:	//All three went
+					fix_time[0] = replacement_time;
+					fix_time[1] = replacement_time;
+					fix_time[2] = replacement_time;
+					fault_val[4] = 'A';
+					fault_val[5] = 'B';
+					fault_val[6] = 'C';
+					fault_val[7] = '\0';
+					break;
+				default:
+					GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
+					//Defined above
+				}//End switch
+
+				if (event_schedule != NULL)	//Function was mapped - go for it!
+				{
+					//Call the function
+					result_val = ((int (*)(OBJECT *, OBJECT *, char *, TIMESTAMP, TIMESTAMP, int, bool))(*event_schedule))(*eventgen_obj,obj,fault_val,t0,0,-1,false);
+
+					//Make sure it worked
+					if (result_val != 1)
+					{
+						GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+						/*  TROUBLESHOOT
+						While attempting to propagate a blown fuse's impacts, an error was encountered.  Please
+						try again.  If the error persists, please submit your code and a bug report via the trac website.
+						*/
+					}
+
+					//Ensure we don't go anywhere yet
+					t2 = t0;
+
+				}	//End fault object present
+				else	//No object, just fail us out - save the iterations
+				{
+					gl_warning("No fault_check object present - Newton-Raphson solver may fail!");
+					/*  TROUBLESHOOT
+					A fuse blew and created an open link.  If the system is not meshed, the Newton-Raphson
+					solver will likely fail.  Theoretically, this should be a quick fail due to a singular matrix.
+					However, the system occasionally gets stuck and will exhaust iteration cycles before continuing.
+					If the fuse is blowing and the NR solver still iterates for a long time, this may be the case.
+					*/
+				}
+			}
+		}
 		else
 		{
-			//Deflag, just in case
-			fuse_fixed = false;
-		}
-
-		//Call syncing function
-		fuse_sync_function();
-
-		//See if anything updated - if so, call the function to fix it (before we break it below)
-		if (fuse_fixed == true)
-		{
-			//Call the function to remove phases/handle this
-			fuse_change_status_function();
-//			result_val = fuse_mesh_method_change(fix_phases,false);
-
-			//Safety device enacted - now call fault_check function and let it remove all invalid objects
-			//Map the function
-			funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
-
-			//Make sure it was found
-			if (funadd == NULL)
+			/**
+			* Fix the fuse
+			*/
+			//Only needs to be done if reliability isn't present, or we're in the "other method"
+			if ((event_schedule == NULL) || (meshed_fault_checking_enabled == true))
 			{
-				GL_THROW("Unable to update objects for reliability effects");
-				/*  TROUBLESHOOT
-				While attempting to update the powerflow to properly represent the new post-fault state, an error
-				occurred.  If the problem persists, please submit a bug report and your code to the trac website.
-				*/
+				//Put any fuses back in service, if they're ready
+				fix_fuse_function(t0);
+
+			}//End no event_gen or mesh method
+			else
+			{
+				//Deflag, just in case
+				fuse_fixed = false;
 			}
 
-			//Update powerflow - removal mode
-			ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,true);
+			//Call syncing function
+			fuse_sync_function();
 
-			//Make sure it worked
-			if (ext_result != 1)
+			//See if anything updated - if so, call the function to fix it (before we break it below)
+			if (fuse_fixed == true)
 			{
-				GL_THROW("Unable to update objects for reliability effects");
-				//defined above
+				//Call the function to remove phases/handle this
+				fuse_change_status_function();
+	//			result_val = fuse_mesh_method_change(fix_phases,false);
+
+				//Safety device enacted - now call fault_check function and let it remove all invalid objects
+				//Map the function
+				funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+				//Make sure it was found
+				if (funadd == NULL)
+				{
+					GL_THROW("Unable to update objects for reliability effects");
+					/*  TROUBLESHOOT
+					While attempting to update the powerflow to properly represent the new post-fault state, an error
+					occurred.  If the problem persists, please submit a bug report and your code to the trac website.
+					*/
+				}
+
+				//Update powerflow - removal mode
+				ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,true);
+
+				//Make sure it worked
+				if (ext_result != 1)
+				{
+					GL_THROW("Unable to update objects for reliability effects");
+					//defined above
+				}
+
+				//
+				fuse_fixed = false; // Set value back to default
+				fix_phases = 0x00;  // Set value back to default
+				replacement_time = TS_NEVER; // Set replacement time as TS_NEVER the default value after fixing the fuse
+
 			}
 
-			//
-			fuse_fixed = false; // Set value back to default
-			fix_phases = 0x00;  // Set value back to default
-			replacement_time = TS_NEVER; // Set replacement time as TS_NEVER the default value after fixing the fuse
+			//Call overlying link sync
+			t2=link_object::sync(t0);
 
-		}
-
-		//Call overlying link sync
-		t2=link_object::sync(t0);
-
-		/**
-		* Check if fuse is to be opened under abnormal current
-		*/
-		if (energyBased == false) {
-			// Fuse has not yet planned to open
-			if (Flag_open == false) {
-				// Phase A
-				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//Phase A valid - check it
-				{
-					//Link::sync is where current in is calculated.  Convert the values
-					current_current_values[0] = current_in[0].Mag();
-					current_fault_values[0] = If_in[0].Mag();
-
-					if ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip))
+			/**
+			* Check if fuse is to be opened under abnormal current
+			*/
+			if (energyBased == false) {
+				// Fuse has not yet planned to open
+				if (Flag_open == false) {
+					// Phase A
+					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//Phase A valid - check it
 					{
-						// Get the fault/interrupting current
-						maxIf = fmax(current_current_values[0], current_fault_values[0]);
-
-						// Call function to calculate operation time of the fuse with/without given TCCs
-						t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
-
-						// Get opening time
-						TIMESTAMP t_fault_temp = t0; // record the fault occuring time
-						TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
-
-						// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_fault_temp < t_fault) {
-							t_fault = t_fault_temp;
-						}
-
-						// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_open_temp < t_open) {
-							t_open = t_open_temp;
-						}
-
-						// Set flag
-						Flag_open = true;
-
-						// Set fault phase
-						fault_phases |= 0x04;	//Flag A change
-					}
-				}
-				// Phase B
-				if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//Phase B valid - check it
-				{
-					//Link::sync is where current in is calculated.  Convert the values
-					current_current_values[1] = current_in[1].Mag();
-					current_fault_values[1] = If_in[1].Mag();
-
-					if ((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip))
-					{
-						// Get the fault/interrupting current
-						maxIf = fmax(current_current_values[1], current_fault_values[1]);
-
-						// Call function to calculate operation time of the fuse with/without given TCCs
-						t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
-
-						TIMESTAMP t_fault_temp = t0; // record the fault occuring time
-						TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
-						// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_fault_temp < t_fault) {
-							t_fault = t_fault_temp;
-						}
-						// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_open_temp < t_open) {
-							t_open = t_open_temp;
-						}
-						// Set flag
-						Flag_open = true;
-
-						// Set fault phase
-						fault_phases |= 0x02;	//Flag B change
-					}
-				}
-				// Phase C
-				if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//Phase C valid - check it
-				{
-					//Link::sync is where current in is calculated.  Convert the values
-					current_current_values[2] = current_in[2].Mag();
-					current_fault_values[2] = If_in[2].Mag();
-
-					if ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip))
-					{
-						// Get the fault/interrupting current
-						maxIf = fmax(current_current_values[2], current_fault_values[2]);
-
-						// Call function to calculate operation time of the fuse with/without given TCCs
-						t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
-
-						TIMESTAMP t_fault_temp = t0; // record the fault occuring time
-						TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
-						// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_fault_temp < t_fault) {
-							t_fault = t_fault_temp;
-						}
-						// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
-						if (t_open_temp < t_open) {
-							t_open = t_open_temp;
-						}
-						// Set flag
-						Flag_open = true;
-
-						// Set fault phase
-						fault_phases |= 0x01;	//Flag C change
-					}
-				}
-
-				// Set return time as the opening time of the fuse
-				if (t_return > t_open) {
-					t_return = t_open; // Will go to the t_open time to open the recloser
-				}
-				else if (t_return > replacement_time) {
-					t_return = replacement_time; // If not to be opened, may already opened and to be fixed
-				}
-
-			} // End Flag_open == false
-
-			// If flag_open is true and fuse will be open at t_open
-			else {
-
-				// After setting flag_open as true, iteration of the same time step comes to this part before time reaches t_open.
-				// Need to set the return time to t_open again, or the time to open the fuse will not be reached
-				if (t0 < t_open) {
-					t_return = t_open;
-				}
-
-				// If current time is t_open
-				if (t0 == t_open ) {
-
-					//Set up fault type
-					fault_val[0] = 'F';
-					fault_val[1] = 'U';
-					fault_val[2] = 'S';
-					fault_val[3] = '-';
-
-					//Determine who blew and store the time (assumes fuses can be replaced in parallel)
-					switch (fault_phases)
-					{
-					case 0x00:	//No fuses blown !??
-						GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
-						/*  TROUBLESHOOT
-						A fuse reported an over-current condition and blew the appropriate link.  However, it did not appear
-						to fully propogate this condition.  Please try again.  If the error persists, please submit your code
-						and a bug report via the trac website.
-						*/
-						break;
-					case 0x01:	//Phase C blew
-						// Have to exam current again to see if fault persists
-						current_current_values[2] = current_in[2].Mag();
-						current_fault_values[2] = If_in[2].Mag();
-						if ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip))
-						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_C_state = BLOWN;	//Blow the fuse
-							fix_time[2] = replacement_time;
-							fault_val[4] = 'C';
-							fault_val[5] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
-
-							return TS_NEVER;
-						}
-					case 0x02:	//Phase B blew
-						// Have to exam current again to see if fault persists
-						current_current_values[1] = current_in[1].Mag();
-						current_fault_values[1] = If_in[1].Mag();
-						if ((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip))
-						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_B_state = BLOWN;	//Blow the fuse
-							fix_time[1] = replacement_time;
-							fault_val[4] = 'B';
-							fault_val[5] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
-
-							return TS_NEVER;
-						}
-					case 0x03:	//Phase B and C blew
-						// Have to exam current again to see if fault persists
-						current_current_values[1] = current_in[1].Mag();
-						current_fault_values[1] = If_in[1].Mag();
-						current_current_values[2] = current_in[2].Mag();
-						current_fault_values[2] = If_in[2].Mag();
-						// Have to check if both phase B and C see the fault
-						if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)))
-						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_B_state = BLOWN;	//Blow the fuse
-							phase_C_state = BLOWN;	//Blow the fuse
-							fix_time[1] = replacement_time;
-							fix_time[2] = replacement_time;
-							fault_val[4] = 'B';
-							fault_val[5] = 'C';
-							fault_val[6] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
-
-							return TS_NEVER;
-						}
-					case 0x04:	//Phase A blew
-						// Have to exam current again to see if fault persists
+						//Link::sync is where current in is calculated.  Convert the values
 						current_current_values[0] = current_in[0].Mag();
 						current_fault_values[0] = If_in[0].Mag();
+
 						if ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip))
 						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_A_state = BLOWN;	//Blow the fuse
-							fix_time[0] = replacement_time;
-							fault_val[4] = 'A';
-							fault_val[5] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
+							// Get the fault/interrupting current
+							maxIf = fmax(current_current_values[0], current_fault_values[0]);
 
-							return TS_NEVER;
-						}
-					case 0x05:	//Phase A and C blew
-						// Have to exam current again to see if fault persists
-						current_current_values[2] = current_in[2].Mag();
-						current_fault_values[2] = If_in[2].Mag();
-						current_current_values[0] = current_in[0].Mag();
-						current_fault_values[0] = If_in[0].Mag();
-						// Have to check if both phase B and C see the fault
-						if (((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)))
-						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_A_state = BLOWN;	//Blow the fuse
-							phase_C_state = BLOWN;	//Blow the fuse
-							fix_time[0] = replacement_time;
-							fix_time[2] = replacement_time;
-							fault_val[4] = 'A';
-							fault_val[5] = 'C';
-							fault_val[6] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
+							// Call function to calculate operation time of the fuse with/without given TCCs
+							t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
 
-							return TS_NEVER;
-						}
-					case 0x06:	//Phase A and B blew
-						// Have to exam current again to see if fault persists
-						current_current_values[1] = current_in[1].Mag();
-						current_fault_values[1] = If_in[1].Mag();
-						current_current_values[0] = current_in[0].Mag();
-						current_fault_values[0] = If_in[0].Mag();
-						// Have to check if both phase B and C see the fault
-						if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)))
-						{
-							replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
-							phase_A_state = BLOWN;	//Blow the fuse
-							phase_B_state = BLOWN;	//Blow the fuse
-							fix_time[0] = replacement_time;
-							fix_time[1] = replacement_time;
-							fault_val[4] = 'A';
-							fault_val[5] = 'B';
-							fault_val[6] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
+							// Get opening time
+							TIMESTAMP t_fault_temp = t0; // record the fault occuring time
+							TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
 
-							return TS_NEVER;
-						}
-					case 0x07:	//All three went
-						// Have to exam current again to see if fault persists
-						current_current_values[2] = current_in[2].Mag();
-						current_fault_values[2] = If_in[2].Mag();
-						current_current_values[1] = current_in[1].Mag();
-						current_fault_values[1] = If_in[1].Mag();
-						current_current_values[0] = current_in[0].Mag();
-						current_fault_values[0] = If_in[0].Mag();
-						// Have to check if both phase B and C see the fault
-						if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)) && ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)))
-						{
-							phase_A_state = BLOWN;	//Blow the fuse
-							phase_B_state = BLOWN;	//Blow the fuse
-							phase_C_state = BLOWN;	//Blow the fuse
-							fix_time[0] = replacement_time;
-							fix_time[1] = replacement_time;
-							fix_time[2] = replacement_time;
-							fault_val[4] = 'A';
-							fault_val[5] = 'B';
-							fault_val[6] = 'C';
-							fault_val[7] = '\0';
-							break;
-						}
-						else {
-							fault_phases  = 0x00;
-							Flag_open = false;
-							t_open = TS_NEVER;
+							// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_fault_temp < t_fault) {
+								t_fault = t_fault_temp;
+							}
 
-							return TS_NEVER;
-						}
-					default:
-						GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
-						//Defined above
-					}//End switch
+							// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_open_temp < t_open) {
+								t_open = t_open_temp;
+							}
 
-					fuse_change_status_function();
+							// Set flag
+							Flag_open = true;
 
-					//Figure out which method we're using
-					if (meshed_fault_checking_enabled==true)
-					{
-						//Safety device enacted - now call fault_check function and let it remove all invalid objects
-						//Map the function
-						funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
-
-						//Make sure it was found
-						if (funadd == NULL)
-						{
-							GL_THROW("Unable to update objects for reliability effects");
-							/*  TROUBLESHOOT
-							While attempting to update the powerflow to properly represent the new post-fault state, an error
-							occurred.  If the problem persists, please submit a bug report and your code to the trac website.
-							*/
-						}
-
-						//Update powerflow - removal mode
-						ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
-
-						//Make sure it worked
-						if (ext_result != 1)
-						{
-							GL_THROW("Unable to update objects for reliability effects");
-							//defined above
+							// Set fault phase
+							fault_phases |= 0x04;	//Flag A change
 						}
 					}
-					else	//"Standard" method
+					// Phase B
+					if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//Phase B valid - check it
 					{
-						if (event_schedule != NULL)	//Function was mapped - go for it!
-						{
-							//Call the function
-							result_val = ((int (*)(OBJECT *, OBJECT *, char *, TIMESTAMP, TIMESTAMP, int, bool))(*event_schedule))(*eventgen_obj,obj,fault_val,t0,0,-1,false);
+						//Link::sync is where current in is calculated.  Convert the values
+						current_current_values[1] = current_in[1].Mag();
+						current_fault_values[1] = If_in[1].Mag();
 
-							//Make sure it worked
-							if (result_val != 1)
+						if ((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip))
+						{
+							// Get the fault/interrupting current
+							maxIf = fmax(current_current_values[1], current_fault_values[1]);
+
+							// Call function to calculate operation time of the fuse with/without given TCCs
+							t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
+
+							TIMESTAMP t_fault_temp = t0; // record the fault occuring time
+							TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+							// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_fault_temp < t_fault) {
+								t_fault = t_fault_temp;
+							}
+							// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_open_temp < t_open) {
+								t_open = t_open_temp;
+							}
+							// Set flag
+							Flag_open = true;
+
+							// Set fault phase
+							fault_phases |= 0x02;	//Flag B change
+						}
+					}
+					// Phase C
+					if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//Phase C valid - check it
+					{
+						//Link::sync is where current in is calculated.  Convert the values
+						current_current_values[2] = current_in[2].Mag();
+						current_fault_values[2] = If_in[2].Mag();
+
+						if ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip))
+						{
+							// Get the fault/interrupting current
+							maxIf = fmax(current_current_values[2], current_fault_values[2]);
+
+							// Call function to calculate operation time of the fuse with/without given TCCs
+							t_operation = cal_t_TCC_based(maxIf, &(clearTCC));
+
+							TIMESTAMP t_fault_temp = t0; // record the fault occuring time
+							TIMESTAMP t_open_temp = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+							// Set t_fault only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_fault_temp < t_fault) {
+								t_fault = t_fault_temp;
+							}
+							// Set t_open only when smaller value obtained - in case of different operational time of fuse of multiple phases
+							if (t_open_temp < t_open) {
+								t_open = t_open_temp;
+							}
+							// Set flag
+							Flag_open = true;
+
+							// Set fault phase
+							fault_phases |= 0x01;	//Flag C change
+						}
+					}
+
+					// Set return time as the opening time of the fuse
+					if (t_return > t_open) {
+						t_return = t_open; // Will go to the t_open time to open the recloser
+					}
+					else if (t_return > replacement_time) {
+						t_return = replacement_time; // If not to be opened, may already opened and to be fixed
+					}
+
+				} // End Flag_open == false
+
+				// If flag_open is true and fuse will be open at t_open
+				else {
+
+					// After setting flag_open as true, iteration of the same time step comes to this part before time reaches t_open.
+					// Need to set the return time to t_open again, or the time to open the fuse will not be reached
+					if (t0 < t_open) {
+						t_return = t_open;
+					}
+
+					// If current time is t_open
+					if (t0 == t_open ) {
+
+						//Set up fault type
+						fault_val[0] = 'F';
+						fault_val[1] = 'U';
+						fault_val[2] = 'S';
+						fault_val[3] = '-';
+
+						//Determine who blew and store the time (assumes fuses can be replaced in parallel)
+						switch (fault_phases)
+						{
+						case 0x00:	//No fuses blown !??
+							GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
+							/*  TROUBLESHOOT
+							A fuse reported an over-current condition and blew the appropriate link.  However, it did not appear
+							to fully propogate this condition.  Please try again.  If the error persists, please submit your code
+							and a bug report via the trac website.
+							*/
+							break;
+						case 0x01:	//Phase C blew
+							// Have to exam current again to see if fault persists
+							current_current_values[2] = current_in[2].Mag();
+							current_fault_values[2] = If_in[2].Mag();
+							if ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip))
 							{
-								GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_C_state = BLOWN;	//Blow the fuse
+								fix_time[2] = replacement_time;
+								fault_val[4] = 'C';
+								fault_val[5] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x02:	//Phase B blew
+							// Have to exam current again to see if fault persists
+							current_current_values[1] = current_in[1].Mag();
+							current_fault_values[1] = If_in[1].Mag();
+							if ((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip))
+							{
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_B_state = BLOWN;	//Blow the fuse
+								fix_time[1] = replacement_time;
+								fault_val[4] = 'B';
+								fault_val[5] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x03:	//Phase B and C blew
+							// Have to exam current again to see if fault persists
+							current_current_values[1] = current_in[1].Mag();
+							current_fault_values[1] = If_in[1].Mag();
+							current_current_values[2] = current_in[2].Mag();
+							current_fault_values[2] = If_in[2].Mag();
+							// Have to check if both phase B and C see the fault
+							if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)))
+							{
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_B_state = BLOWN;	//Blow the fuse
+								phase_C_state = BLOWN;	//Blow the fuse
+								fix_time[1] = replacement_time;
+								fix_time[2] = replacement_time;
+								fault_val[4] = 'B';
+								fault_val[5] = 'C';
+								fault_val[6] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x04:	//Phase A blew
+							// Have to exam current again to see if fault persists
+							current_current_values[0] = current_in[0].Mag();
+							current_fault_values[0] = If_in[0].Mag();
+							if ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip))
+							{
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_A_state = BLOWN;	//Blow the fuse
+								fix_time[0] = replacement_time;
+								fault_val[4] = 'A';
+								fault_val[5] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x05:	//Phase A and C blew
+							// Have to exam current again to see if fault persists
+							current_current_values[2] = current_in[2].Mag();
+							current_fault_values[2] = If_in[2].Mag();
+							current_current_values[0] = current_in[0].Mag();
+							current_fault_values[0] = If_in[0].Mag();
+							// Have to check if both phase B and C see the fault
+							if (((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)))
+							{
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_A_state = BLOWN;	//Blow the fuse
+								phase_C_state = BLOWN;	//Blow the fuse
+								fix_time[0] = replacement_time;
+								fix_time[2] = replacement_time;
+								fault_val[4] = 'A';
+								fault_val[5] = 'C';
+								fault_val[6] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x06:	//Phase A and B blew
+							// Have to exam current again to see if fault persists
+							current_current_values[1] = current_in[1].Mag();
+							current_fault_values[1] = If_in[1].Mag();
+							current_current_values[0] = current_in[0].Mag();
+							current_fault_values[0] = If_in[0].Mag();
+							// Have to check if both phase B and C see the fault
+							if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)))
+							{
+								replacement_time = findReplacementTime(t0);	// Caluclate the replacement time
+								phase_A_state = BLOWN;	//Blow the fuse
+								phase_B_state = BLOWN;	//Blow the fuse
+								fix_time[0] = replacement_time;
+								fix_time[1] = replacement_time;
+								fault_val[4] = 'A';
+								fault_val[5] = 'B';
+								fault_val[6] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						case 0x07:	//All three went
+							// Have to exam current again to see if fault persists
+							current_current_values[2] = current_in[2].Mag();
+							current_fault_values[2] = If_in[2].Mag();
+							current_current_values[1] = current_in[1].Mag();
+							current_fault_values[1] = If_in[1].Mag();
+							current_current_values[0] = current_in[0].Mag();
+							current_fault_values[0] = If_in[0].Mag();
+							// Have to check if both phase B and C see the fault
+							if (((current_current_values[1] > Itrip) || (current_fault_values[1] > Itrip)) && ((current_current_values[0] > Itrip) || (current_fault_values[0] > Itrip)) && ((current_current_values[2] > Itrip) || (current_fault_values[2] > Itrip)))
+							{
+								phase_A_state = BLOWN;	//Blow the fuse
+								phase_B_state = BLOWN;	//Blow the fuse
+								phase_C_state = BLOWN;	//Blow the fuse
+								fix_time[0] = replacement_time;
+								fix_time[1] = replacement_time;
+								fix_time[2] = replacement_time;
+								fault_val[4] = 'A';
+								fault_val[5] = 'B';
+								fault_val[6] = 'C';
+								fault_val[7] = '\0';
+								break;
+							}
+							else {
+								fault_phases  = 0x00;
+								Flag_open = false;
+								t_open = TS_NEVER;
+
+								return TS_NEVER;
+							}
+						default:
+							GL_THROW("fuse:%s supposedly blew, but doesn't register the right phases",obj->name);
+							//Defined above
+						}//End switch
+
+						fuse_change_status_function();
+
+						//Figure out which method we're using
+						if (meshed_fault_checking_enabled==true)
+						{
+							//Safety device enacted - now call fault_check function and let it remove all invalid objects
+							//Map the function
+							funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+							//Make sure it was found
+							if (funadd == NULL)
+							{
+								GL_THROW("Unable to update objects for reliability effects");
 								/*  TROUBLESHOOT
-								While attempting to propagate a blown fuse's impacts, an error was encountered.  Please
-								try again.  If the error persists, please submit your code and a bug report via the trac website.
+								While attempting to update the powerflow to properly represent the new post-fault state, an error
+								occurred.  If the problem persists, please submit a bug report and your code to the trac website.
 								*/
 							}
 
-							//Ensure we don't go anywhere yet
-							t2 = t0;
+							//Update powerflow - removal mode
+							ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
 
-						}	//End fault object present
-						else	//No object, just fail us out - save the iterations
-						{
-							gl_warning("No fault_check object present - Newton-Raphson solver may fail!");
-							/*  TROUBLESHOOT
-							A fuse blew and created an open link.  If the system is not meshed, the Newton-Raphson
-							solver will likely fail.  Theoretically, this should be a quick fail due to a singular matrix.
-							However, the system occasionally gets stuck and will exhaust iteration cycles before continuing.
-							If the fuse is blowing and the NR solver still iterates for a long time, this may be the case.
-							*/
+							//Make sure it worked
+							if (ext_result != 1)
+							{
+								GL_THROW("Unable to update objects for reliability effects");
+								//defined above
+							}
 						}
-					}//End old approach
+						else	//"Standard" method
+						{
+							if (event_schedule != NULL)	//Function was mapped - go for it!
+							{
+								//Call the function
+								result_val = ((int (*)(OBJECT *, OBJECT *, char *, TIMESTAMP, TIMESTAMP, int, bool))(*event_schedule))(*eventgen_obj,obj,fault_val,t0,0,-1,false);
 
-					// Reset variables after opening the fuse
-					fault_phases  = 0x00;
-					Flag_open = false;
-					t_open = TS_NEVER;
+								//Make sure it worked
+								if (result_val != 1)
+								{
+									GL_THROW("Attempt to blow fuse:%s failed in a reliability manner",obj->name);
+									/*  TROUBLESHOOT
+									While attempting to propagate a blown fuse's impacts, an error was encountered.  Please
+									try again.  If the error persists, please submit your code and a bug report via the trac website.
+									*/
+								}
 
-					// Set return time as the replacement time of the fuse
-					if (t_return > replacement_time) {
-						t_return = replacement_time; // Will go to the t_open time to open the recloser
+								//Ensure we don't go anywhere yet
+								t2 = t0;
+
+							}	//End fault object present
+							else	//No object, just fail us out - save the iterations
+							{
+								gl_warning("No fault_check object present - Newton-Raphson solver may fail!");
+								/*  TROUBLESHOOT
+								A fuse blew and created an open link.  If the system is not meshed, the Newton-Raphson
+								solver will likely fail.  Theoretically, this should be a quick fail due to a singular matrix.
+								However, the system occasionally gets stuck and will exhaust iteration cycles before continuing.
+								If the fuse is blowing and the NR solver still iterates for a long time, this may be the case.
+								*/
+							}
+						}//End old approach
+
+						// Reset variables after opening the fuse
+						fault_phases  = 0x00;
+						Flag_open = false;
+						t_open = TS_NEVER;
+
+						// Set return time as the replacement time of the fuse
+						if (t_return > replacement_time) {
+							t_return = replacement_time; // Will go to the t_open time to open the recloser
+						}
 					}
 				}
-			}
-		} // end TCC-based fuse implementation
-		// Begin energy-based fuse implementation
-		else {
-			// Check Phase A if it exists and closed
-			if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04 && phase_A_state == GOOD)	//Phase A valid - check it
-			{
-				// Obtain the fault current
-				current_current_values[0] = current_in[0].Mag();
-				current_fault_values[0] = If_in[0].Mag();
-				maxIf = fmax(current_current_values[0], current_fault_values[0]);
-
-				// Process based on energy
-				energyBasedTimeCal(0, maxIf, t0);
-
-			} // End phase A check
-			// Check Phase B if it exists and closed
-			if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02 && phase_B_state == GOOD)	//Phase B valid - check it
-			{
-				// Obtain the fault current
-				current_current_values[1] = current_in[1].Mag();
-				current_fault_values[1] = If_in[1].Mag();
-				maxIf = fmax(current_current_values[1], current_fault_values[1]);
-
-				// Process based on energy
-				energyBasedTimeCal(1, maxIf, t0);
-
-			} // End phase B check
-			// Check Phase C if it exists and closed
-			if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01 && phase_C_state == GOOD)	//Phase C valid - check it
-			{
-				// Obtain the fault current
-				current_current_values[2] = current_in[2].Mag();
-				current_fault_values[2] = If_in[2].Mag();
-				maxIf = fmax(current_current_values[2], current_fault_values[2]);
-
-				// Process based on energy
-				energyBasedTimeCal(2, maxIf, t0);
-
-			} // End phase C check
-
-			if (t_return_array[0] > t_return_array[1]) {
-				if (t_return_array[1] > t_return_array[2]) {
-					t_return = t_return_array[2];
-				}
-				else t_return = t_return_array[1];
-			}
+			} // end TCC-based fuse implementation
+			// Begin energy-based fuse implementation
 			else {
+				// Check Phase A if it exists and closed
+				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04 && phase_A_state == GOOD)	//Phase A valid - check it
+				{
+					// Obtain the fault current
+					current_current_values[0] = current_in[0].Mag();
+					current_fault_values[0] = If_in[0].Mag();
+					maxIf = fmax(current_current_values[0], current_fault_values[0]);
 
-				if (t_return_array[0] > t_return_array[2]) {
-					t_return = t_return_array[2];
+					// Process based on energy
+					energyBasedTimeCal(0, maxIf, t0);
+
+				} // End phase A check
+				// Check Phase B if it exists and closed
+				if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02 && phase_B_state == GOOD)	//Phase B valid - check it
+				{
+					// Obtain the fault current
+					current_current_values[1] = current_in[1].Mag();
+					current_fault_values[1] = If_in[1].Mag();
+					maxIf = fmax(current_current_values[1], current_fault_values[1]);
+
+					// Process based on energy
+					energyBasedTimeCal(1, maxIf, t0);
+
+				} // End phase B check
+				// Check Phase C if it exists and closed
+				if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01 && phase_C_state == GOOD)	//Phase C valid - check it
+				{
+					// Obtain the fault current
+					current_current_values[2] = current_in[2].Mag();
+					current_fault_values[2] = If_in[2].Mag();
+					maxIf = fmax(current_current_values[2], current_fault_values[2]);
+
+					// Process based on energy
+					energyBasedTimeCal(2, maxIf, t0);
+
+				} // End phase C check
+
+				if (t_return_array[0] > t_return_array[1]) {
+					if (t_return_array[1] > t_return_array[2]) {
+						t_return = t_return_array[2];
+					}
+					else t_return = t_return_array[1];
 				}
-				else t_return = t_return_array[0];
-			}
+				else {
 
-		} // end energy-based fuse implementation
+					if (t_return_array[0] > t_return_array[2]) {
+						t_return = t_return_array[2];
+					}
+					else t_return = t_return_array[0];
+				}
 
+			} // end energy-based fuse implementation
+		}//End "new fuse behavior"
 	}//End NR-only reliability calls
 	else	//FBS
 		t2 = link_object::sync(t0);
@@ -1287,13 +1571,18 @@ void fuse::fuse_sync_function(void)
 		//Check status before running sync (since it will clear it)
 		if ((status != prev_status) || (pres_status != prev_full_status))
 		{
-			//Update status
-			prev_status = status;
+			if (meshed_fault_checking_enabled == true)
+			{
+				//Update status
+				prev_status = status;
+			}
 
 			LOCK_OBJECT(NR_swing_bus);	//Lock SWING since we'll be modifying this
 			NR_admit_change = true;	//Flag an admittance change
 			UNLOCK_OBJECT(NR_swing_bus);	//Finished
 		}
+
+		prev_full_status = pres_status;	//Update the status flags
 	}//end SM_NR
 }
 

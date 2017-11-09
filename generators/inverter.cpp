@@ -3846,8 +3846,6 @@ TIMESTAMP inverter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 	double scaling_factor, Q_target;
 	complex temp_current_val[3];
 	complex power_val[3];
-	TIMESTAMP dt;
-	double inputPower;
 
 	//Check and see if we need to redispatch
 	if ((inverter_type_v == FOUR_QUADRANT) && (four_quadrant_control_mode == FQM_LOAD_FOLLOWING) && (lf_dispatch_change_allowed==true))
@@ -4820,7 +4818,6 @@ TIMESTAMP inverter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 
 		    VA_Out_past = VA_Out;
 		}
-
 	}
 	
 	return t2; /* return t2>t1 on success, t2=t1 for retry, t2<t1 on failure */
@@ -4920,7 +4917,6 @@ SIMULATIONMODE inverter::inter_deltaupdate(unsigned int64 delta_time, unsigned l
 	double ieee_1547_double;
 	complex temp_current_val[3];
 	complex power_val[3];
-	double inputPower;
 
 	SIMULATIONMODE simmode_return_value = SM_EVENT;
 
@@ -6378,10 +6374,6 @@ SIMULATIONMODE inverter::inter_deltaupdate(unsigned int64 delta_time, unsigned l
 						VA_Out = (pCircuit_V[0] * ~(I_Out[0])) + (pCircuit_V[1] * ~(I_Out[1])) + (pCircuit_V[2] * ~(I_Out[2]));
 
 						for(i = 0; i < 3; i++) {
-
-//							// Check the current power output for each phase
-//							curr_VA_out[i] = (pCircuit_V[i] * ~(I_Out[i]));
-
 //							curr_state.P_Out[i] = VA_Out.Re() / 3.0;
 							curr_state.P_Out[i] = (pCircuit_V[i] * ~(I_Out[i])).Re();
 							curr_state.Q_Out[i] = (pCircuit_V[i] * ~(I_Out[i])).Im();

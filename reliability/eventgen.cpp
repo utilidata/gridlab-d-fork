@@ -166,13 +166,33 @@ int eventgen::init(OBJECT *parent)
 	unsigned int temp_time_A_nano, temp_time_B_nano;
 	double temp_time_A_dbl, temp_time_B_dbl;
 	char temp_buff[128];
+	gld_property *pCheck_meshed_fault_enabled;
+	gld_rlock *test_rlock;
 
 	//Get global_minimum_timestep value and set the appropriate flag
 	//Retrieve the global value, only does so as a text string for some reason
 	gl_global_getvar("minimum_timestep",temp_buff,sizeof(temp_buff));
 
+
+	// *********** LPNORM Crude Check --- fix!!! ******************//
 	// Get global value
-	check_meshed_fault_enabled = gl_global_find("powerflow::enable_mesh_fault_current");
+	pCheck_meshed_fault_enabled = new gld_property("powerflow::enable_mesh_fault_current");
+
+	//Make sure it is valid
+	if (pCheck_meshed_fault_enabled->is_valid() != true)
+	{
+		GL_THROW("Failed to map mesh fault current");
+		//This message will get replaced
+		// TODO: Replace this message!
+
+		return 0;
+	}
+
+	//Get the actual value
+	pCheck_meshed_fault_enabled->getp<bool>(check_meshed_fault_enabled,*test_rlock);
+
+	// ********************* LPNORM Crude Check end **************************//
+
 
 	//Initialize our parsing variables
 	index = 0;
@@ -280,7 +300,7 @@ int eventgen::init(OBJECT *parent)
 			metrics_obj_hdr = hdr->parent;
 
 			// If meshed fault method is used, then neeed to link to power_metrics function
-			if (check_meshed_fault_enabled) {
+			if (check_meshed_fault_enabled == true) {
 
 				power_metrics_hdr = metrics_obj->module_metrics_obj;
 

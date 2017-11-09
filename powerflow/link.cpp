@@ -219,7 +219,7 @@ int link_object::create(void)
 
 	current_in[0] = current_in[1] = current_in[2] = complex(0,0);
 
-	link_limits[0][0] = link_limits[0][1] = link_limits[0][2] = link_limits[1][0] = link_limits[1][2] = link_limits[1][3] = NULL;
+	link_limits[0][0] = link_limits[0][1] = link_limits[0][2] = link_limits[1][0] = link_limits[1][1] = link_limits[1][2] = NULL;
 	
 	link_rating[0][0] = link_rating[0][1] = link_rating[0][2] = 1000;	//Replicates current defaults of line objects
 	link_rating[1][0] = link_rating[1][1] = link_rating[1][2] = 2000;
@@ -392,12 +392,22 @@ int link_object::init(OBJECT *parent)
 	{
 		NR_branch_count++;		//Update global value of link count
 
-		gl_set_rank(obj,1);	//Links go to rank 1
-
-		// Set rank of the sectionalizer as 2, since it should be processed after the recloser
-		if (gl_object_isa(obj,"sectionalizer","powerflow"))
+		//Different fault handling functionality
+		if (meshed_fault_checking_enabled == true)
 		{
-			gl_set_rank(obj,2);	//sectionalizer links go to rank 2
+			// Set rank of the sectionalizer as 2, since it should be processed after the recloser
+			if (gl_object_isa(obj,"sectionalizer","powerflow"))
+			{
+				gl_set_rank(obj,2);	//sectionalizer links go to rank 2
+			}
+			else
+			{
+				gl_set_rank(obj,1);	//Links go to rank 1
+			}
+		}
+		else
+		{
+			gl_set_rank(obj,1);	//Links go to rank 1
 		}
 
 		//Link to the tn constants if we are a triplex (parent/child relationship gets lost)
@@ -11536,144 +11546,6 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	complex xx[7];
 	complex det;
 	int fault_pop_vect[3];
-
-	// zero Z_thevenin !
-	Z_thevenin[0][0]=Z_thevenin[0][1]=Z_thevenin[0][2]=Z_thevenin[1][0]=Z_thevenin[1][1]=Z_thevenin[1][2]=Z_thevenin[2][0]=Z_thevenin[2][1]=Z_thevenin[2][2]=0;
-
-	temp_branch_fc = NR_branch_reference;
-	temp_node = NR_branchdata[temp_branch_fc].from;
-	NR_branchdata[temp_branch_fc].fault_link_below[0] = -1; //-1 indicates that temp_branch_fc is the faulted link object
-
-	//Contain the "new code" in a check - otherwise it breaks old autotests
-	if (meshed_fault_checking_enabled == true)	//Mesh mode
-	{
-		// Add only event fault into the fault_linked_list
-		if (event_fault == true)
-		{
-			//Pre-empty the fault_pop_vect with zeros
-			fault_pop_vect[0] = 0;
-			fault_pop_vect[1] = 0;
-			fault_pop_vect[2] = 0;
-
-			//Determine if we need a fault number
-			if ((fault_type <= 10) || (fault_type == 32))
-			{
-				//Obtain the fault number (and add it to the linked list)
-				fault_number = add_fault_to_linked_list(NR_branch_reference, C, removed_phase, fault_type);
-
-				//Make sure it worked properly
-				if (fault_number < 0)
-				{
-					GL_THROW("Error initiating fault in linked list");
-					/*  TROUBLESHOOT
-					While attempting to add a fault condition to the powerflow faulted object linked list, an error
-					was encountered.  Please try again.  If the error persists, please submit your code and a bug report
-					via the ticketing system.
-					*/
-				}
-			}
-			else	//Other type of fault - we don't need a special number
-			{
-				fault_number = 0;
-			}
-
-			//Determine the fault type and set the "fault-present" vector appropriately (for use later)
-			switch (fault_type) {
-				case 1:	//SLG-A
-				{
-					fault_pop_vect[0] = fault_number;
-					break;
-				}
-				case 2:	//SLG-B
-				{
-					fault_pop_vect[1] = fault_number;
-					break;
-				}
-				case 3:	//SLG-C
-				{
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 4:	//DLG-AB
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[1] = fault_number;
-					break;
-				}
-				case 5:	//DLG-BC
-				{
-					fault_pop_vect[1] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 6:	//DLG-CA
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 7:	//LL-AB
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[1] = fault_number;
-					break;
-				}
-				case 8:	//LL-BC
-				{
-					fault_pop_vect[1] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 9:	//LL-CA
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 10:	//TLG
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[1] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				case 32:	//TLL
-				{
-					fault_pop_vect[0] = fault_number;
-					fault_pop_vect[1] = fault_number;
-					fault_pop_vect[2] = fault_number;
-					break;
-				}
-				default:	//All other cases - they don't actually cause a fault current
-				{
-					break;
-				}
-			}//End switch/case
-
-			//Populate the current branch, before we move on
-			//Populate the fault numbering item, as we move up
-			for (misc_index=0; misc_index<3; misc_index++)
-			{
-				if (fault_pop_vect[misc_index] != 0)
-				{
-					//Make sure we're not already populated
-					if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
-					{
-						//Error - how did we fault an already faulted branch!?
-						GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
-						//Define below
-					}
-					else	//Just copy us in
-					{
-						NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
-					}
-				}
-				//Default else - it's zero, ignore it
-			}
-		}
-	}//End meshed topology mode enabled
-
-	// loop that traces the SC path to the swing bus
 	int parallelFound = 0; // index indicating how many paralleled branches being processed already. Defaul is 0 (no paralleled)
 	int temp_branch_fc_all[3];
 	int temp_branch_fc_curr[3];
@@ -11681,144 +11553,207 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 	bool Parallel_flag = false;
 	int phaseNums = 0; // indicates how many phases this temp_node has
 	temp_branch_fc_curr[0] = temp_branch_fc_curr[1] = temp_branch_fc_curr[2] = -2; // default value given is -2;
-	while (NR_busdata[temp_node].type != 2)
+
+	//Massive if-else, because I'm lazy
+	if (meshed_fault_checking_enabled == false)
 	{
-
-		// In case of paralleled branches
-		// Obtain flag indicating if the downstream branch is paralleled
-		if (Parallel_flag == true) {
-			isParallel_below = true;
-		}
-		else {
-			isParallel_below = false;
-			temp_branch_fc_all[0] = temp_branch_fc_all[1] = temp_branch_fc_all[2] = -2; // clear of value
-		}
-
-		Parallel_flag = false; // Initialize the flag for this node
-		parallelFound = 0; // clear the value
-
-		// Check current node phase numbers
-		phaseNums = 0; // indicates how many phases this temp_node has
-
-		// Has phase A?
-		if ((NR_busdata[temp_node].phases & 0x04) == 0x04) {
-			phaseNums++;
-		}
-		// Has phase B?
-		if ((NR_busdata[temp_node].phases & 0x02) == 0x02) {
-			phaseNums++;
-		}
-		// Has phase C?
-		if ((NR_busdata[temp_node].phases & 0x01) == 0x01) {
-			phaseNums++;
-		}
-
-		//Pull from bus of current link
-		current_branch = temp_branch_fc;
-
-		//
-		for (int branchNum = 0; branchNum < 3; branchNum++) {
-			NR_busdata[temp_node].link_directConnect[branchNum] = -2; // Give a default value of -2 to the found upstream branch of the temp_node object
-		}
-		for (temp_table_loc=0; temp_table_loc<NR_busdata[temp_node].Link_Table_Size; temp_table_loc++)
-		{
-			//See if node is a to end - assumes radial phase progressions (i.e., no phase AB and phase C running into a node to form node ABC)
-			if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].to == temp_node)	//This node is a to end
-			{
-
-				//Go up to the next level
-				temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
-				if (NR_branchdata[temp_branch_fc].phases == 0) {
-					continue;
-				}
-				NR_branchdata[temp_branch_fc].isParallel  = false;
-				for (int branchNum = 0; branchNum < 3; branchNum++) {
-					NR_branchdata[temp_branch_fc].fault_link_below[branchNum] = -2; // Give a default value of -2 to the found branch fault_link_below
-				}
-				NR_busdata[temp_node].link_directConnect[parallelFound] = temp_branch_fc;
-				if (isParallel_below == false) {
-					// If there is only one downstream branch
-					NR_branchdata[temp_branch_fc].fault_link_below[0] = current_branch;
-				}
-				else {
-					// If the downstream branch is paralled, should store all branches
-					for (int branchNum = 0; branchNum < 3; branchNum++) {
-						NR_branchdata[temp_branch_fc].fault_link_below[branchNum] = temp_branch_fc_all[branchNum];
-					}
-				}
-
-
-				if (meshed_fault_checking_enabled == true)	//Only do this with the "new routine"
-				{
-					// Add fault_inplace only when it is during event_fault
-					if (event_fault == true)
-					{
-						//Populate the fault numbering item, as we move up
-						for (misc_index=0; misc_index<3; misc_index++)
-						{
-							if (fault_pop_vect[misc_index] != 0)
-							{
-								//Make sure we're not already populated
-								if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
-								{
-									//Error - how did we fault an already faulted branch!?
-									GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
-									/*  TROUBLESHOOT
-									While attempting to populate the flag for a fault condition, and existing fault was found.  This should not
-									happen.  Please check your code and try again.  If the error persists, or if you are using a base copy of
-									GridLAB-D, please submit your files and a bug report via the ticketing system.
-									*/
-								}
-								else	//Just copy us in
-								{
-									NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
-								}
-							}
-							//Default else - it's zero, ignore it
-						}
-					}
-				}//End meshed topology routine
-
-				// Do not go out of the loop immediately, until possible paralleled branched all been found
-//				break;	//Out of this for we go!
-				// If all the temp_node phases have been processed
-				temp_branch_fc_curr[parallelFound] = temp_branch_fc;
-				if (parallelFound >= phaseNums - 1) {
-					for (int branchNum = 0; branchNum < phaseNums; branchNum++) {
-						temp_branch_fc_all[branchNum] = temp_branch_fc_curr[branchNum];
-						NR_branchdata[temp_branch_fc_curr[branchNum]].isParallel = true;
-						temp_branch_fc_curr[branchNum] = -2;
-					}
-					Parallel_flag = true;
-					break;
-				}
-				parallelFound++;
-			}//End it is a to-end
-
-		}//End link table for traversion
-
-		temp_node = NR_branchdata[temp_branch_fc].from;
-	}
+		// zero Z_thevenin !
+		Z_thevenin[0][0]=Z_thevenin[0][1]=Z_thevenin[0][2]=Z_thevenin[1][0]=Z_thevenin[1][1]=Z_thevenin[1][2]=Z_thevenin[2][0]=Z_thevenin[2][1]=Z_thevenin[2][2]=0;
 	
-	//Grab the swing bus voltage
-	V_sb[0] = NR_busdata[temp_node].V[0];
-	V_sb[1] = NR_busdata[temp_node].V[1];
-	V_sb[2] = NR_busdata[temp_node].V[2];
-
-	//Travel back down to the faulted node adding up all the device impedances in the fault path
-	int branchNum = 0;
-	if (parallelFound == 1) {
-		parallelFound--;
-	}
-	else {
-		parallelFound--;
-		temp_branch_fc = temp_branch_fc_all[parallelFound];
-	}
-
-
-	int temp_branch_fc_pre = temp_branch_fc;
-	while(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
-		temp_branch_phases = NR_branchdata[temp_branch_fc].phases & 0x07;
+		temp_branch_fc = NR_branch_reference;
+		temp_node = NR_branchdata[temp_branch_fc].from;
+		NR_branchdata[temp_branch_fc].fault_link_below[0] = -1; //-1 indicates that temp_branch_fc is the faulted link object 
+		
+		// loop that traces the SC path to the swing bus
+		while (NR_busdata[temp_node].type != 2)
+		{
+			//Pull from bus of current link
+			current_branch = temp_branch_fc;
+			
+			for (temp_table_loc=0; temp_table_loc<NR_busdata[temp_node].Link_Table_Size; temp_table_loc++)
+			{
+				//See if node is a to end - assumes radial phase progressions (i.e., no phase AB and phase C running into a node to form node ABC)
+				if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].to == temp_node)	//This node is a to end
+				{
+					//Go up to the next level
+					temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
+					NR_branchdata[temp_branch_fc].fault_link_below[0] = current_branch;
+					break;	//Out of this for we go!
+				}//End it is a to-end
+				//Default else - it must be a from, just proceed
+			}//End link table for traversion
+	
+			//Make sure we didn't somehow reach the end
+			if (temp_table_loc == NR_busdata[temp_node].Link_Table_Size)
+			{
+				GL_THROW("Error finding proper to reference for node %s",NR_busdata[temp_node].name);
+				/*  TROUBLESHOOT
+				While attempting to induce a safety reaction to a fault, a progression through the
+				links of the system failed.  Please try again.  If the bug persists, please submit your
+				*/
+			}
+			temp_node = NR_branchdata[temp_branch_fc].from;
+		}
+		
+		//Grab the swing bus voltage
+		V_sb[0] = NR_busdata[temp_node].V[0];
+		V_sb[1] = NR_busdata[temp_node].V[1];
+		V_sb[2] = NR_busdata[temp_node].V[2];
+	
+		//Travel back down to the faulted node adding up all the device impedances in the fault path
+		while(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+			temp_branch_phases = NR_branchdata[temp_branch_fc].phases & 0x07;
+			if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+				temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+				temp_transformer = NR_branchdata[temp_branch_fc].obj;	//get the transformer object
+				if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+					temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+					temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+					temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+					temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+					if(temp_connection_type == 1){//WYE_WYE or DELTA-DELTA transformer
+						if(temp_branch_phases == 0x07){//has all three phases
+							Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+							Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+							Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+							Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+							Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+							Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+							Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+							Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+							Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+							inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+						} else if(temp_branch_phases == 0x06){//has phases A and B
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+							Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+							Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+							Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+							Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+						} else if(temp_branch_phases == 0x05){//has phases A and C
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+							Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+							Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+							Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+							Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+						} else if(temp_branch_phases == 0x03){//has phases B and C
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+							Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+							Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+							Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+							Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+						} else if(temp_branch_phases == 0x04){//has phase A
+							Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+						} else if(temp_branch_phases == 0x02){//has phase B
+							Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+						} else if(temp_branch_phases == 0x01){//has phase C
+							Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+						}
+						A_t[0][0] = A_t[1][1] = A_t[2][2] = d_t[0][0] = d_t[1][1] = d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;//calculate the transfer matrix A_t such that Z_low = A_t * Z_high * d_t
+	
+						equalm(Z_thevenin,Z_sys);
+						multiply(A_t,Z_sys,Z_thevenin);
+						equalm(Z_thevenin,Z_sys);
+						multiply(Z_sys,d_t,Z_thevenin);
+						addition(Z_thevenin,Z_temp,Z_thevenin);
+						V_sb[0] = V_sb[0]*A_t[0][0];
+						V_sb[1] = V_sb[1]*A_t[1][1];
+						V_sb[2] = V_sb[2]*A_t[2][2];
+					} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+						if(temp_branch_phases == 0x07){
+							Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+							Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+							Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+							Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+							Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+							Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+							Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+							Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+							Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+							inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+	
+							A_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[0][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[1][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+	
+							d_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[0][1] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[1][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+	
+							equalm(Z_thevenin,Z_sys);
+							multiply(A_t,Z_sys,Z_thevenin);
+							equalm(Z_thevenin,Z_sys);
+							multiply(Z_sys,d_t,Z_thevenin);
+							addition(Z_thevenin,Z_temp,Z_thevenin);
+	
+							V_sys[0] = V_sb[0];
+							V_sys[1] = V_sb[1];
+							V_sys[2] = V_sb[2];
+							V_sb[0] = A_t[0][0]*V_sys[0] + A_t[0][1]*V_sys[1] + A_t[0][2]*V_sys[2];
+							V_sb[1] = A_t[1][0]*V_sys[0] + A_t[1][1]*V_sys[1] + A_t[1][2]*V_sys[2];
+							V_sb[2] = A_t[2][0]*V_sys[0] + A_t[2][1]*V_sys[1] + A_t[2][2]*V_sys[2];
+						} else {
+						gl_warning("Delta-grounded WYE transformers with less than three phases aren't handled. Ignoring object. Fault current is not accurate.");
+						}
+					} else if(temp_connection_type == 4){// Single phase transformer
+						gl_warning("Single phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+					} else {//split-phase transformer
+						gl_warning("split-phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+					}
+				} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+					gl_warning("regulators are neglected from the fault calculation");
+				} else {
+					GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
+				}
+			} else {//line or safety device
+				if(temp_branch_phases == 0x07){//has all three phases
+					Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+					Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+					Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+					Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+					Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+					Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+					Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+					Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+					Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+					inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+				} else if(temp_branch_phases == 0x06){//has phases A and B
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+					Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+					Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+				} else if(temp_branch_phases == 0x05){//has phases A and C
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+					Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+					Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+				} else if(temp_branch_phases == 0x03){//has phases B and C
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+					Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+					Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+				} else if(temp_branch_phases == 0x04){//has phase A
+					Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+				} else if(temp_branch_phases == 0x02){//has phase B
+					Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+				} else if(temp_branch_phases == 0x01){//has phase C
+					Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+				}
+				addition(Z_thevenin,Z_temp,Z_thevenin);
+			}
+			temp_branch_fc = NR_branchdata[temp_branch_fc].fault_link_below[0];
+		}
+	
+		//include the faulted link's impedance in the equivalent system impedance
+		temp_branch_phases = removed_phase | NR_branchdata[temp_branch_fc].phases;
 		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
 			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
 			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
@@ -11827,7 +11762,842 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
 				temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
 				temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
-				if(temp_connection_type == 1){//WYE_WYE or DELTA-DELTA transformer
+				if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+					if(temp_branch_phases == 0x07){//has all three phases
+						Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+						Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+						Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+						Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+						Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+						Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+						Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+						Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+						Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+						inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+					} else if(temp_branch_phases == 0x06){//has phases A and B
+						double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+						Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+						Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+						Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+						Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+					} else if(temp_branch_phases == 0x05){//has phases A and C
+						double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+						Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+						Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+						Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+						Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+					} else if(temp_branch_phases == 0x03){//has phases B and C
+						double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+						Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+						Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+						Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+						Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+					} else if(temp_branch_phases == 0x04){//has phase A
+						Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+					} else if(temp_branch_phases == 0x02){//has phase B
+						Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+					} else if(temp_branch_phases == 0x01){//has phase C
+						Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+					}
+					A_t[0][0] = A_t[1][1] = A_t[2][2] = d_t[0][0] = d_t[1][1] = d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;//calculate the transfer matrix A_t such that Z_low = A_t * Z_high * d_t
+	
+					equalm(Z_thevenin,Z_sys);
+					multiply(A_t,Z_sys,Z_thevenin);
+					equalm(Z_thevenin,Z_sys);
+					multiply(Z_sys,d_t,Z_thevenin);
+					addition(Z_thevenin,Z_temp,Z_thevenin);
+					V_sb[0] = V_sb[0]*A_t[0][0];
+					V_sb[1] = V_sb[1]*A_t[1][1];
+					V_sb[2] = V_sb[2]*A_t[2][2];
+				} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+					if(temp_branch_phases == 0x07){
+						Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+						Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+						Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+						Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+						Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+						Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+						Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+						Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+						Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+						inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+	
+						A_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+						A_t[0][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						A_t[1][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						A_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+						A_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						A_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+	
+						d_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+						d_t[0][1] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						d_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+						d_t[1][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						d_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+						d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+	
+						equalm(Z_thevenin,Z_sys);
+						multiply(A_t,Z_sys,Z_thevenin);
+						equalm(Z_thevenin,Z_sys);
+						multiply(Z_sys,d_t,Z_thevenin);
+						addition(Z_thevenin,Z_temp,Z_thevenin);
+	
+						V_sys[0] = V_sb[0];
+						V_sys[1] = V_sb[1];
+						V_sys[2] = V_sb[2];
+						V_sb[0] = A_t[0][0]*V_sys[0] + A_t[0][1]*V_sys[1] + A_t[0][2]*V_sys[2];
+						V_sb[1] = A_t[1][0]*V_sys[0] + A_t[1][1]*V_sys[1] + A_t[1][2]*V_sys[2];
+						V_sb[2] = A_t[2][0]*V_sys[0] + A_t[2][1]*V_sys[1] + A_t[2][2]*V_sys[2];
+					} else {
+					gl_warning("Delta-grounded WYE transformers with less than three phases aren't handled. Ignoring object. Fault current is not accurate.");
+					}
+				} else if(temp_connection_type == 4){// Single phase transformer
+					gl_warning("Single phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+				} else {//split-phase transformer
+					gl_warning("split-phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+				}
+			} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+				gl_warning("regulators are neglected from the fault calculation");
+			} else {
+				GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
+			}
+		} else {//line or safety device
+			if(temp_branch_phases == 0x07){//has all three phases
+				Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+				Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+				Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+				Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+				Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+				Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+				Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+				Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+				Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+				inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+			} else if(temp_branch_phases == 0x06){//has phases A and B
+				double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+				Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+				Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+				Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+				Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+			} else if(temp_branch_phases == 0x05){//has phases A and C
+				double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+				Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+				Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+				Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+				Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+			} else if(temp_branch_phases == 0x03){//has phases B and C
+				double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+				Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+				Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+				Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+				Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+			} else if(temp_branch_phases == 0x04){//has phase A
+				Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+			} else if(temp_branch_phases == 0x02){//has phase B
+				Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+			} else if(temp_branch_phases == 0x01){//has phase C
+				Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+			}
+			addition(Z_thevenin,Z_temp,Z_thevenin);
+		}
+		inverse(Z_thevenin,Y_thevenin);
+		//calculate the full three phase to ground fault current at the swing bus
+		IP[0] = Y_thevenin[0][0]*V_sb[0] + Y_thevenin[0][1]*V_sb[1] + Y_thevenin[0][2]*V_sb[2];
+		IP[1] = Y_thevenin[1][0]*V_sb[0] + Y_thevenin[1][1]*V_sb[1] + Y_thevenin[1][2]*V_sb[2];
+		IP[2] = Y_thevenin[2][0]*V_sb[0] + Y_thevenin[2][1]*V_sb[1] + Y_thevenin[2][2]*V_sb[2];
+		IP[3] = 0;
+		IP[4] = 0;
+		IP[5] = 0;
+		IP[6] = 0;
+		//add the Y_thevenin matrix into the C matrix according to Kersting
+		C[0][3] = Y_thevenin[0][0];
+		C[0][4] = Y_thevenin[0][1];
+		C[0][5] = Y_thevenin[0][2];
+		C[0][6] = C[0][3]+C[0][4]+C[0][5];
+		C[1][3] = Y_thevenin[1][0];
+		C[1][4] = Y_thevenin[1][1];
+		C[1][5] = Y_thevenin[1][2];
+		C[1][6] = C[1][3]+C[1][4]+C[1][5];
+		C[2][3] = Y_thevenin[2][0];
+		C[2][4] = Y_thevenin[2][1];
+		C[2][5] = Y_thevenin[2][2];
+		C[2][6] = C[2][3]+C[2][4]+C[2][5];
+	
+		if(fault_type == 1){//SLG-A
+			det = C[1][4]*C[2][5] - C[1][5]*C[1][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = complex(1,0);
+			C_inv[0][1] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
+		} else if(fault_type == 2){//SLG-B
+			det = C[0][3]*C[2][5] - C[0][5]*C[0][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][1] = complex(1,0);
+			C_inv[1][0] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
+			C_inv[1][2] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
+		} else if(fault_type == 3){//SLG-C
+			det = C[0][3]*C[1][4] - C[0][4]*C[0][4];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[2][2] = complex(1,0);
+			C_inv[2][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
+			C_inv[2][1] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
+		} else if(fault_type == 4){//DLG-AB
+			det = C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = C_inv[1][1] = complex(1,0);
+			C_inv[0][2] = -C[0][5]/det;
+			C_inv[1][2] = -C[1][5]/det;
+		} else if(fault_type == 5){//DLG-BC
+			det = C[0][3];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][1] = C_inv[2][2] = complex(1,0);
+			C_inv[1][0] = -C[0][4]/det;
+			C_inv[2][0] = -C[0][5]/det;
+		} else if(fault_type == 6){//DLG-CA
+			det = C[1][4];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = C_inv[2][2] = complex(1,0);
+			C_inv[0][1] = -C[0][4]/det;
+			C_inv[2][1] = -C[1][5]/det;
+		} else if(fault_type == 7){//LL-AB
+			det= C[0][5]*C[0][5] + complex(2,0)*C[0][5]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[2][5] - complex(2,0)*C[0][4]*C[2][5] - C[1][4]*C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = (C[1][5]*C[1][5] + C[0][5]*C[1][5] - C[0][4]*C[2][5] - C[1][4]*C[2][5])/det;
+			C_inv[0][1] = -(C[0][5]*C[0][5] + C[1][5]*C[0][5] - C[0][3]*C[2][5] - C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[0][5] + C[0][5]*C[1][4] - C[0][4]*C[1][5] - C[0][3]*C[1][5])/det;
+			C_inv[1][1] = -C_inv[0][1];
+			C_inv[1][2] = -C_inv[0][2];
+			C_inv[1][0] = -C_inv[0][0];
+		} else if(fault_type == 8){//LL-BC
+			det= C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[0][5] + C[0][5]*C[0][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][3]*C[1][5] - C[0][3]*C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
+			C_inv[1][1] = (C[0][5]*C[0][5] + C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][3]*C[2][5])/det;
+			C_inv[1][2] = -(C[0][4]*C[0][4] + C[0][5]*C[0][4] - C[0][3]*C[1][4] - C[0][3]*C[1][5])/det;
+			C_inv[2][0] = -C_inv[1][0];
+			C_inv[2][2] = -C_inv[1][2];
+			C_inv[2][1] = -C_inv[1][1];
+		} else if(fault_type == 9){//LL-CA
+			det= -(C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][5]*C[1][4] - C[1][4]*C[2][5]);
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = -(C[1][5]*C[1][5] + C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[1][4]*C[2][5])/det;
+			C_inv[0][1] = -(C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[0][4] + C[1][5]*C[0][4] - C[0][3]*C[1][4] - C[0][5]*C[1][4])/det;
+			C_inv[2][1] = -C_inv[0][1];
+			C_inv[2][2] = -C_inv[0][2];
+			C_inv[2][0] = -C_inv[0][0];
+		} else if(fault_type == 10){//TLG
+			C_inv[0][0] = C_inv[1][1] = C_inv[2][2] = complex(1,0);
+		} else if(fault_type == 11){//TLL
+			det = C[0][3] + complex(2,0)*C[0][4] + complex(2,0)*C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = (C[0][4] + C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5])/det;
+			C_inv[0][1] = C_inv[0][2] = -C[0][6]/det;
+			C_inv[1][0] = C_inv[1][2] = -C[1][6]/det;
+			C_inv[1][1] = (C[0][3] + C[0][4] + complex(2,0)*C[0][5] + C[1][5] + C[2][5])/det;
+			C_inv[2][0] = C_inv[2][1] = -C[2][6]/det;
+			C_inv[2][2] = (C[0][3] + complex(2,0)*C[0][4] + C[0][5] + C[1][4] + C[1][5])/det;
+		}
+		//decompose the C matrix
+	//	lu_decomp(C, L, U);
+	//	//solve A*x = b using forward and backward substitution, L*z = b and U*x = z 
+	//	forward_sub(L, IP, zz);
+	//	back_sub(U, zz, xx);
+	
+		//pass the fault current back down to the faulted object
+		NR_branchdata[temp_branch_fc].If_to[0] = C_inv[0][0]*IP[0] + C_inv[0][1]*IP[1] + C_inv[0][2]*IP[2];
+		NR_branchdata[temp_branch_fc].If_to[1] = C_inv[1][0]*IP[0] + C_inv[1][1]*IP[1] + C_inv[1][2]*IP[2];
+		NR_branchdata[temp_branch_fc].If_to[2] = C_inv[2][0]*IP[0] + C_inv[2][1]*IP[1] + C_inv[2][2]*IP[2];
+		temp_node = NR_branchdata[temp_branch_fc].from;
+		
+		while (NR_busdata[temp_node].type != 2)
+		{
+			if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+				temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+				temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+				if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+					temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+					temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+					temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+					temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+					if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+						if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+							NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+							NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+							NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+						}
+						temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
+					} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+						gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else if(temp_connection_type == 4){// Single phase transformer
+						gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else {//split-phase transformer
+						gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					}
+				} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+					if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+						NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+						NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+						NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+					}
+					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+					gl_warning("regulators are neglected from the fault calculation");
+				} else {
+					GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
+				}
+			} else {
+				if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+					NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+					NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+					NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+				}
+				NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+				NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+				NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+			}
+			for (temp_table_loc=0; temp_table_loc<NR_busdata[temp_node].Link_Table_Size; temp_table_loc++)
+			{
+				//See if node is a to end - assumes radial phase progressions (i.e., no phase AB and phase C running into a node to form node ABC)
+				if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].to == temp_node)	//This node is a to end
+				{
+					//Go up to the next level
+					temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
+					break;	//Out of this for we go!
+				}//End it is a to-end
+				//Default else - it must be a from, just proceed
+			}//End link table for traversion
+	
+			//Make sure we didn't somehow reach the end
+			if (temp_table_loc == NR_busdata[temp_node].Link_Table_Size)
+			{
+				GL_THROW("Error finding proper to reference for node %s",NR_busdata[temp_node].name);
+				/*  TROUBLESHOOT
+				While attempting to enduce a safety reaction to a fault, a progression through the
+				links of the system failed.  Please try again.  If the bug persists, please submit your
+				*/
+			}
+			temp_node = NR_branchdata[temp_branch_fc].from;
+		}
+	
+		//update the fault current variables in link object connected to the swing bus
+		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+				temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+				temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+				if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+					if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+						NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+						NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+						NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+					}
+					temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
+					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
+					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
+					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
+				} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+					gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+				} else if(temp_connection_type == 4){// Single phase transformer
+					gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+				} else {//split-phase transformer
+					gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+				}
+			} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+				if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+					NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+					NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+					NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+				}
+				NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+				NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+				NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+				gl_warning("regulators are neglected from the fault calculation");
+			} else {
+				GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
+			}
+		} else {
+			if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+				NR_branchdata[temp_branch_fc].If_to[0] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[0];
+				NR_branchdata[temp_branch_fc].If_to[1] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[1];
+				NR_branchdata[temp_branch_fc].If_to[2] = NR_branchdata[NR_branchdata[temp_branch_fc].fault_link_below[0]].If_from[2];
+			}
+			NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+			NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+			NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+		}	
+	}//Old fault checking method
+	else
+	{
+		// zero Z_thevenin !
+		Z_thevenin[0][0]=Z_thevenin[0][1]=Z_thevenin[0][2]=Z_thevenin[1][0]=Z_thevenin[1][1]=Z_thevenin[1][2]=Z_thevenin[2][0]=Z_thevenin[2][1]=Z_thevenin[2][2]=0;
+
+		temp_branch_fc = NR_branch_reference;
+		temp_node = NR_branchdata[temp_branch_fc].from;
+		NR_branchdata[temp_branch_fc].fault_link_below[0] = -1; //-1 indicates that temp_branch_fc is the faulted link object
+
+		//Contain the "new code" in a check - otherwise it breaks old autotests
+		if (meshed_fault_checking_enabled == true)	//Mesh mode
+		{
+			// Add only event fault into the fault_linked_list
+			if (event_fault == true)
+			{
+				//Pre-empty the fault_pop_vect with zeros
+				fault_pop_vect[0] = 0;
+				fault_pop_vect[1] = 0;
+				fault_pop_vect[2] = 0;
+
+				//Determine if we need a fault number
+				if ((fault_type <= 10) || (fault_type == 32))
+				{
+					//Obtain the fault number (and add it to the linked list)
+					fault_number = add_fault_to_linked_list(NR_branch_reference, C, removed_phase, fault_type);
+
+					//Make sure it worked properly
+					if (fault_number < 0)
+					{
+						GL_THROW("Error initiating fault in linked list");
+						/*  TROUBLESHOOT
+						While attempting to add a fault condition to the powerflow faulted object linked list, an error
+						was encountered.  Please try again.  If the error persists, please submit your code and a bug report
+						via the ticketing system.
+						*/
+					}
+				}
+				else	//Other type of fault - we don't need a special number
+				{
+					fault_number = 0;
+				}
+
+				//Determine the fault type and set the "fault-present" vector appropriately (for use later)
+				switch (fault_type) {
+					case 1:	//SLG-A
+					{
+						fault_pop_vect[0] = fault_number;
+						break;
+					}
+					case 2:	//SLG-B
+					{
+						fault_pop_vect[1] = fault_number;
+						break;
+					}
+					case 3:	//SLG-C
+					{
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 4:	//DLG-AB
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[1] = fault_number;
+						break;
+					}
+					case 5:	//DLG-BC
+					{
+						fault_pop_vect[1] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 6:	//DLG-CA
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 7:	//LL-AB
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[1] = fault_number;
+						break;
+					}
+					case 8:	//LL-BC
+					{
+						fault_pop_vect[1] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 9:	//LL-CA
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 10:	//TLG
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[1] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					case 32:	//TLL
+					{
+						fault_pop_vect[0] = fault_number;
+						fault_pop_vect[1] = fault_number;
+						fault_pop_vect[2] = fault_number;
+						break;
+					}
+					default:	//All other cases - they don't actually cause a fault current
+					{
+						break;
+					}
+				}//End switch/case
+
+				//Populate the current branch, before we move on
+				//Populate the fault numbering item, as we move up
+				for (misc_index=0; misc_index<3; misc_index++)
+				{
+					if (fault_pop_vect[misc_index] != 0)
+					{
+						//Make sure we're not already populated
+						if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+						{
+							//Error - how did we fault an already faulted branch!?
+							GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+							//Define below
+						}
+						else	//Just copy us in
+						{
+							NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+						}
+					}
+					//Default else - it's zero, ignore it
+				}
+			}
+		}//End meshed topology mode enabled
+
+		// loop that traces the SC path to the swing bus
+		while (NR_busdata[temp_node].type != 2)
+		{
+
+			// In case of paralleled branches
+			// Obtain flag indicating if the downstream branch is paralleled
+			if (Parallel_flag == true) {
+				isParallel_below = true;
+			}
+			else {
+				isParallel_below = false;
+				temp_branch_fc_all[0] = temp_branch_fc_all[1] = temp_branch_fc_all[2] = -2; // clear of value
+			}
+
+			Parallel_flag = false; // Initialize the flag for this node
+			parallelFound = 0; // clear the value
+
+			// Check current node phase numbers
+			phaseNums = 0; // indicates how many phases this temp_node has
+
+			// Has phase A?
+			if ((NR_busdata[temp_node].phases & 0x04) == 0x04) {
+				phaseNums++;
+			}
+			// Has phase B?
+			if ((NR_busdata[temp_node].phases & 0x02) == 0x02) {
+				phaseNums++;
+			}
+			// Has phase C?
+			if ((NR_busdata[temp_node].phases & 0x01) == 0x01) {
+				phaseNums++;
+			}
+
+			//Pull from bus of current link
+			current_branch = temp_branch_fc;
+
+			//
+			for (int branchNum = 0; branchNum < 3; branchNum++) {
+				NR_busdata[temp_node].link_directConnect[branchNum] = -2; // Give a default value of -2 to the found upstream branch of the temp_node object
+			}
+			for (temp_table_loc=0; temp_table_loc<NR_busdata[temp_node].Link_Table_Size; temp_table_loc++)
+			{
+				//See if node is a to end - assumes radial phase progressions (i.e., no phase AB and phase C running into a node to form node ABC)
+				if (NR_branchdata[NR_busdata[temp_node].Link_Table[temp_table_loc]].to == temp_node)	//This node is a to end
+				{
+
+					//Go up to the next level
+					temp_branch_fc = NR_busdata[temp_node].Link_Table[temp_table_loc];
+					if (NR_branchdata[temp_branch_fc].phases == 0) {
+						continue;
+					}
+					NR_branchdata[temp_branch_fc].isParallel  = false;
+					for (int branchNum = 0; branchNum < 3; branchNum++) {
+						NR_branchdata[temp_branch_fc].fault_link_below[branchNum] = -2; // Give a default value of -2 to the found branch fault_link_below
+					}
+					NR_busdata[temp_node].link_directConnect[parallelFound] = temp_branch_fc;
+					if (isParallel_below == false) {
+						// If there is only one downstream branch
+						NR_branchdata[temp_branch_fc].fault_link_below[0] = current_branch;
+					}
+					else {
+						// If the downstream branch is paralled, should store all branches
+						for (int branchNum = 0; branchNum < 3; branchNum++) {
+							NR_branchdata[temp_branch_fc].fault_link_below[branchNum] = temp_branch_fc_all[branchNum];
+						}
+					}
+
+
+					if (meshed_fault_checking_enabled == true)	//Only do this with the "new routine"
+					{
+						// Add fault_inplace only when it is during event_fault
+						if (event_fault == true)
+						{
+							//Populate the fault numbering item, as we move up
+							for (misc_index=0; misc_index<3; misc_index++)
+							{
+								if (fault_pop_vect[misc_index] != 0)
+								{
+									//Make sure we're not already populated
+									if (NR_branchdata[temp_branch_fc].fault_inplace[misc_index] != 0)
+									{
+										//Error - how did we fault an already faulted branch!?
+										GL_THROW("Unable to flag link:%d %s with a fault - one already exists!",NR_branchdata[temp_branch_fc].obj->id,(NR_branchdata[temp_branch_fc].name ? NR_branchdata[temp_branch_fc].name : "Unnamed"));
+										/*  TROUBLESHOOT
+										While attempting to populate the flag for a fault condition, and existing fault was found.  This should not
+										happen.  Please check your code and try again.  If the error persists, or if you are using a base copy of
+										GridLAB-D, please submit your files and a bug report via the ticketing system.
+										*/
+									}
+									else	//Just copy us in
+									{
+										NR_branchdata[temp_branch_fc].fault_inplace[misc_index] = fault_pop_vect[misc_index];
+									}
+								}
+								//Default else - it's zero, ignore it
+							}
+						}
+					}//End meshed topology routine
+
+					// Do not go out of the loop immediately, until possible paralleled branched all been found
+	//				break;	//Out of this for we go!
+					// If all the temp_node phases have been processed
+					temp_branch_fc_curr[parallelFound] = temp_branch_fc;
+					if (parallelFound >= phaseNums - 1) {
+						for (int branchNum = 0; branchNum < phaseNums; branchNum++) {
+							temp_branch_fc_all[branchNum] = temp_branch_fc_curr[branchNum];
+							NR_branchdata[temp_branch_fc_curr[branchNum]].isParallel = true;
+							temp_branch_fc_curr[branchNum] = -2;
+						}
+						Parallel_flag = true;
+						break;
+					}
+					parallelFound++;
+				}//End it is a to-end
+
+			}//End link table for traversion
+
+			temp_node = NR_branchdata[temp_branch_fc].from;
+		}
+		
+		//Grab the swing bus voltage
+		V_sb[0] = NR_busdata[temp_node].V[0];
+		V_sb[1] = NR_busdata[temp_node].V[1];
+		V_sb[2] = NR_busdata[temp_node].V[2];
+
+		//Travel back down to the faulted node adding up all the device impedances in the fault path
+		int branchNum = 0;
+		if (parallelFound == 1) {
+			parallelFound--;
+		}
+		else {
+			parallelFound--;
+			temp_branch_fc = temp_branch_fc_all[parallelFound];
+		}
+
+
+		int temp_branch_fc_pre = temp_branch_fc;
+		while(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+			temp_branch_phases = NR_branchdata[temp_branch_fc].phases & 0x07;
+			if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+				temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+				temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+				if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+					temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+					temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+					temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+					temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+					if(temp_connection_type == 1){//WYE_WYE or DELTA-DELTA transformer
+						if(temp_branch_phases == 0x07){//has all three phases
+							Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+							Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+							Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+							Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+							Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+							Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+							Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+							Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+							Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+							inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+						} else if(temp_branch_phases == 0x06){//has phases A and B
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+							Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+							Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+							Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+							Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+						} else if(temp_branch_phases == 0x05){//has phases A and C
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+							Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+							Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+							Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+							Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+						} else if(temp_branch_phases == 0x03){//has phases B and C
+							double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+							Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+							Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+							Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+							Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+						} else if(temp_branch_phases == 0x04){//has phase A
+							Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+						} else if(temp_branch_phases == 0x02){//has phase B
+							Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+						} else if(temp_branch_phases == 0x01){//has phase C
+							Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+						}
+						A_t[0][0] = A_t[1][1] = A_t[2][2] = d_t[0][0] = d_t[1][1] = d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;//calculate the transfer matrix A_t such that Z_low = A_t * Z_high * d_t
+
+						equalm(Z_thevenin,Z_sys);
+						multiply(A_t,Z_sys,Z_thevenin);
+						equalm(Z_thevenin,Z_sys);
+						multiply(Z_sys,d_t,Z_thevenin);
+						addition(Z_thevenin,Z_temp,Z_thevenin);
+						V_sb[0] = V_sb[0]*A_t[0][0];
+						V_sb[1] = V_sb[1]*A_t[1][1];
+						V_sb[2] = V_sb[2]*A_t[2][2];
+					} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+						if(temp_branch_phases == 0x07){
+							Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+							Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+							Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+							Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+							Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+							Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+							Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+							Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+							Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+							inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+
+							A_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[0][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[1][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							A_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+
+							d_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[0][1] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[1][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
+							d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
+
+							equalm(Z_thevenin,Z_sys);
+							multiply(A_t,Z_sys,Z_thevenin);
+							equalm(Z_thevenin,Z_sys);
+							multiply(Z_sys,d_t,Z_thevenin);
+							addition(Z_thevenin,Z_temp,Z_thevenin);
+
+							V_sys[0] = V_sb[0];
+							V_sys[1] = V_sb[1];
+							V_sys[2] = V_sb[2];
+							V_sb[0] = A_t[0][0]*V_sys[0] + A_t[0][1]*V_sys[1] + A_t[0][2]*V_sys[2];
+							V_sb[1] = A_t[1][0]*V_sys[0] + A_t[1][1]*V_sys[1] + A_t[1][2]*V_sys[2];
+							V_sb[2] = A_t[2][0]*V_sys[0] + A_t[2][1]*V_sys[1] + A_t[2][2]*V_sys[2];
+						} else {
+						gl_warning("Delta-grounded WYE transformers with less than three phases aren't handled. Ignoring object. Fault current is not accurate.");
+						}
+					} else if(temp_connection_type == 4){// Single phase transformer
+						gl_warning("Single phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+					} else {//split-phase transformer
+						gl_warning("split-phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
+					}
+				} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+					gl_warning("regulators are neglected from the fault calculation");
+				} else {
+					GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
+				}
+			} else {//line or safety device
+				if(temp_branch_phases == 0x07){//has all three phases
+					Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
+					Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
+					Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
+					Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
+					Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
+					Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
+					Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
+					Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
+					Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
+					inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
+				} else if(temp_branch_phases == 0x06){//has phases A and B
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
+					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+					Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
+					Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
+					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+				} else if(temp_branch_phases == 0x05){//has phases A and C
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
+					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+					Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
+					Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
+					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
+				} else if(temp_branch_phases == 0x03){//has phases B and C
+					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
+					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
+					Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
+					Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
+					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
+				} else if(temp_branch_phases == 0x04){//has phase A
+					Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
+				} else if(temp_branch_phases == 0x02){//has phase B
+					Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
+				} else if(temp_branch_phases == 0x01){//has phase C
+					Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
+				}
+				addition(Z_thevenin,Z_temp,Z_thevenin);
+			}
+
+			// If the most upstream branch is paralled, should go through this branch completely before going downstream
+			if (parallelFound >= 1) {
+				parallelFound--;
+				temp_branch_fc = temp_branch_fc_all[parallelFound];
+			}
+			else {
+				// Check if all downstream branches connected have been processed
+				if (branchNum < 3 && NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum] != -2) {
+					temp_branch_fc = NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum];
+					branchNum++;
+				}
+				else {
+					branchNum = 0;
+					temp_branch_fc_pre = temp_branch_fc;
+					temp_branch_fc = NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum];
+				}
+			}
+		}
+
+		//include the faulted link's impedance in the equivalent system impedance
+		temp_branch_phases = removed_phase | NR_branchdata[temp_branch_fc].phases;
+		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+				temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+				temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+				if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
 					if(temp_branch_phases == 0x07){//has all three phases
 						Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
 						Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
@@ -11965,411 +12735,244 @@ void link_object::fault_current_calc(complex C[7][7],unsigned int removed_phase,
 			}
 			addition(Z_thevenin,Z_temp,Z_thevenin);
 		}
+		inverse(Z_thevenin,Y_thevenin);
+		//calculate the full three phase to ground fault current at the swing bus
+		IP[0] = Y_thevenin[0][0]*V_sb[0] + Y_thevenin[0][1]*V_sb[1] + Y_thevenin[0][2]*V_sb[2];
+		IP[1] = Y_thevenin[1][0]*V_sb[0] + Y_thevenin[1][1]*V_sb[1] + Y_thevenin[1][2]*V_sb[2];
+		IP[2] = Y_thevenin[2][0]*V_sb[0] + Y_thevenin[2][1]*V_sb[1] + Y_thevenin[2][2]*V_sb[2];
+		IP[3] = 0;
+		IP[4] = 0;
+		IP[5] = 0;
+		IP[6] = 0;
+		//add the Y_thevenin matrix into the C matrix according to Kersting
+		C[0][3] = Y_thevenin[0][0];
+		C[0][4] = Y_thevenin[0][1];
+		C[0][5] = Y_thevenin[0][2];
+		C[0][6] = C[0][3]+C[0][4]+C[0][5];
+		C[1][3] = Y_thevenin[1][0];
+		C[1][4] = Y_thevenin[1][1];
+		C[1][5] = Y_thevenin[1][2];
+		C[1][6] = C[1][3]+C[1][4]+C[1][5];
+		C[2][3] = Y_thevenin[2][0];
+		C[2][4] = Y_thevenin[2][1];
+		C[2][5] = Y_thevenin[2][2];
+		C[2][6] = C[2][3]+C[2][4]+C[2][5];
 
-		// If the most upstream branch is paralled, should go through this branch completely before going downstream
-		if (parallelFound >= 1) {
-			parallelFound--;
-			temp_branch_fc = temp_branch_fc_all[parallelFound];
+		if(fault_type == 1){//SLG-A
+			det = C[1][4]*C[2][5] - C[1][5]*C[1][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = complex(1,0);
+			C_inv[0][1] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
+		} else if(fault_type == 2){//SLG-B
+			det = C[0][3]*C[2][5] - C[0][5]*C[0][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][1] = complex(1,0);
+			C_inv[1][0] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
+			C_inv[1][2] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
+		} else if(fault_type == 3){//SLG-C
+			det = C[0][3]*C[1][4] - C[0][4]*C[0][4];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[2][2] = complex(1,0);
+			C_inv[2][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
+			C_inv[2][1] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
+		} else if(fault_type == 4){//DLG-AB
+			det = C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = C_inv[1][1] = complex(1,0);
+			C_inv[0][2] = -C[0][5]/det;
+			C_inv[1][2] = -C[1][5]/det;
+		} else if(fault_type == 5){//DLG-BC
+			det = C[0][3];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][1] = C_inv[2][2] = complex(1,0);
+			C_inv[1][0] = -C[0][4]/det;
+			C_inv[2][0] = -C[0][5]/det;
+		} else if(fault_type == 6){//DLG-CA
+			det = C[1][4];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = C_inv[2][2] = complex(1,0);
+			C_inv[0][1] = -C[0][4]/det;
+			C_inv[2][1] = -C[1][5]/det;
+		} else if(fault_type == 7){//LL-AB
+			det= C[0][5]*C[0][5] + complex(2,0)*C[0][5]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[2][5] - complex(2,0)*C[0][4]*C[2][5] - C[1][4]*C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = (C[1][5]*C[1][5] + C[0][5]*C[1][5] - C[0][4]*C[2][5] - C[1][4]*C[2][5])/det;
+			C_inv[0][1] = -(C[0][5]*C[0][5] + C[1][5]*C[0][5] - C[0][3]*C[2][5] - C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[0][5] + C[0][5]*C[1][4] - C[0][4]*C[1][5] - C[0][3]*C[1][5])/det;
+			C_inv[1][1] = -C_inv[0][1];
+			C_inv[1][2] = -C_inv[0][2];
+			C_inv[1][0] = -C_inv[0][0];
+		} else if(fault_type == 8){//LL-BC
+			det= C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[0][5] + C[0][5]*C[0][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][3]*C[1][5] - C[0][3]*C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[1][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
+			C_inv[1][1] = (C[0][5]*C[0][5] + C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][3]*C[2][5])/det;
+			C_inv[1][2] = -(C[0][4]*C[0][4] + C[0][5]*C[0][4] - C[0][3]*C[1][4] - C[0][3]*C[1][5])/det;
+			C_inv[2][0] = -C_inv[1][0];
+			C_inv[2][2] = -C_inv[1][2];
+			C_inv[2][1] = -C_inv[1][1];
+		} else if(fault_type == 9){//LL-CA
+			det= -(C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][5]*C[1][4] - C[1][4]*C[2][5]);
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = -(C[1][5]*C[1][5] + C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[1][4]*C[2][5])/det;
+			C_inv[0][1] = -(C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
+			C_inv[0][2] = (C[0][4]*C[0][4] + C[1][5]*C[0][4] - C[0][3]*C[1][4] - C[0][5]*C[1][4])/det;
+			C_inv[2][1] = -C_inv[0][1];
+			C_inv[2][2] = -C_inv[0][2];
+			C_inv[2][0] = -C_inv[0][0];
+		} else if(fault_type == 10){//TLG
+			C_inv[0][0] = C_inv[1][1] = C_inv[2][2] = complex(1,0);
+		} else if(fault_type == 11){//TLL
+			det = C[0][3] + complex(2,0)*C[0][4] + complex(2,0)*C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5];
+			if(det.Mag() <= 1e-4)
+				GL_THROW("Distribution system is singular. Unable to solve for SC current.");
+			C_inv[0][0] = (C[0][4] + C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5])/det;
+			C_inv[0][1] = C_inv[0][2] = -C[0][6]/det;
+			C_inv[1][0] = C_inv[1][2] = -C[1][6]/det;
+			C_inv[1][1] = (C[0][3] + C[0][4] + complex(2,0)*C[0][5] + C[1][5] + C[2][5])/det;
+			C_inv[2][0] = C_inv[2][1] = -C[2][6]/det;
+			C_inv[2][2] = (C[0][3] + complex(2,0)*C[0][4] + C[0][5] + C[1][4] + C[1][5])/det;
 		}
-		else {
-			// Check if all downstream branches connected have been processed
-			if (branchNum < 3 && NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum] != -2) {
-				temp_branch_fc = NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum];
-				branchNum++;
-			}
-			else {
-				branchNum = 0;
-				temp_branch_fc_pre = temp_branch_fc;
-				temp_branch_fc = NR_branchdata[temp_branch_fc_pre].fault_link_below[branchNum];
-			}
-		}
-	}
+		//decompose the C matrix
+	//	lu_decomp(C, L, U);
+	//	//solve A*x = b using forward and backward substitution, L*z = b and U*x = z 
+	//	forward_sub(L, IP, zz);
+	//	back_sub(U, zz, xx);
 
-	//include the faulted link's impedance in the equivalent system impedance
-	temp_branch_phases = removed_phase | NR_branchdata[temp_branch_fc].phases;
-	if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
-		temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-		temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
-		if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
-			temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
-			temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
-			temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
-			temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
-			if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
-				if(temp_branch_phases == 0x07){//has all three phases
-					Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
-					Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
-					Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
-					Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
-					Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
-					Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
-					Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
-					Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
-					Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
-					inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
-				} else if(temp_branch_phases == 0x06){//has phases A and B
-					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
-					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
-					Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
-					Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
-					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
-				} else if(temp_branch_phases == 0x05){//has phases A and C
-					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
-					Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
-					Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
-					Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
-					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
-				} else if(temp_branch_phases == 0x03){//has phases B and C
-					double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
-					Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
-					Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
-					Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
-					Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
-				} else if(temp_branch_phases == 0x04){//has phase A
-					Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
-				} else if(temp_branch_phases == 0x02){//has phase B
-					Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
-				} else if(temp_branch_phases == 0x01){//has phase C
-					Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
-				}
-				A_t[0][0] = A_t[1][1] = A_t[2][2] = d_t[0][0] = d_t[1][1] = d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;//calculate the transfer matrix A_t such that Z_low = A_t * Z_high * d_t
+		//pass the fault current back down to the faulted object
+		NR_branchdata[temp_branch_fc].If_to[0] = C_inv[0][0]*IP[0] + C_inv[0][1]*IP[1] + C_inv[0][2]*IP[2];
+		NR_branchdata[temp_branch_fc].If_to[1] = C_inv[1][0]*IP[0] + C_inv[1][1]*IP[1] + C_inv[1][2]*IP[2];
+		NR_branchdata[temp_branch_fc].If_to[2] = C_inv[2][0]*IP[0] + C_inv[2][1]*IP[1] + C_inv[2][2]*IP[2];
+		temp_node = NR_branchdata[temp_branch_fc].from;
+		branchNum = 0; // indicate whether all link directly connected to the temp_node has been processed
 
-				equalm(Z_thevenin,Z_sys);
-				multiply(A_t,Z_sys,Z_thevenin);
-				equalm(Z_thevenin,Z_sys);
-				multiply(Z_sys,d_t,Z_thevenin);
-				addition(Z_thevenin,Z_temp,Z_thevenin);
-				V_sb[0] = V_sb[0]*A_t[0][0];
-				V_sb[1] = V_sb[1]*A_t[1][1];
-				V_sb[2] = V_sb[2]*A_t[2][2];
-			} else if(temp_connection_type == 3){//Delta grounded WYE transformer
-				if(temp_branch_phases == 0x07){
-					Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
-					Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
-					Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
-					Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
-					Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
-					Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
-					Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
-					Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
-					Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
-					inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
-
-					A_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-					A_t[0][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					A_t[1][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					A_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-					A_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					A_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-
-					d_t[0][0] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-					d_t[0][1] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					d_t[1][1] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-					d_t[1][2] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					d_t[2][0] = -1/NR_branchdata[temp_branch_fc].v_ratio;
-					d_t[2][2] = 1/NR_branchdata[temp_branch_fc].v_ratio;
-
-					equalm(Z_thevenin,Z_sys);
-					multiply(A_t,Z_sys,Z_thevenin);
-					equalm(Z_thevenin,Z_sys);
-					multiply(Z_sys,d_t,Z_thevenin);
-					addition(Z_thevenin,Z_temp,Z_thevenin);
-
-					V_sys[0] = V_sb[0];
-					V_sys[1] = V_sb[1];
-					V_sys[2] = V_sb[2];
-					V_sb[0] = A_t[0][0]*V_sys[0] + A_t[0][1]*V_sys[1] + A_t[0][2]*V_sys[2];
-					V_sb[1] = A_t[1][0]*V_sys[0] + A_t[1][1]*V_sys[1] + A_t[1][2]*V_sys[2];
-					V_sb[2] = A_t[2][0]*V_sys[0] + A_t[2][1]*V_sys[1] + A_t[2][2]*V_sys[2];
-				} else {
-				gl_warning("Delta-grounded WYE transformers with less than three phases aren't handled. Ignoring object. Fault current is not accurate.");
-				}
-			} else if(temp_connection_type == 4){// Single phase transformer
-				gl_warning("Single phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
-			} else {//split-phase transformer
-				gl_warning("split-phase transformers are not supported for fault analysis at this time. Ignoring object. Fault current is not accurate.");
-			}
-		} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
-			gl_warning("regulators are neglected from the fault calculation");
-		} else {
-			GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
-		}
-	} else {//line or safety device
-		if(temp_branch_phases == 0x07){//has all three phases
-			Y_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[0];
-			Y_temp[0][1] = NR_branchdata[temp_branch_fc].YSto[1];
-			Y_temp[0][2] = NR_branchdata[temp_branch_fc].YSto[2];
-			Y_temp[1][0] = NR_branchdata[temp_branch_fc].YSto[3];
-			Y_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[4];
-			Y_temp[1][2] = NR_branchdata[temp_branch_fc].YSto[5];
-			Y_temp[2][0] = NR_branchdata[temp_branch_fc].YSto[6];
-			Y_temp[2][1] = NR_branchdata[temp_branch_fc].YSto[7];
-			Y_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[8];
-			inverse(Y_temp,Z_temp);//Z_temp holds the transformer impedance referenced to the to side
-		} else if(temp_branch_phases == 0x06){//has phases A and B
-			double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[4])-(NR_branchdata[temp_branch_fc].YSto[3]*NR_branchdata[temp_branch_fc].YSto[1]);
-			Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
-			Z_temp[0][1] = -NR_branchdata[temp_branch_fc].YSto[1]/double_phase_det;
-			Z_temp[1][0] = -NR_branchdata[temp_branch_fc].YSto[3]/double_phase_det;
-			Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
-		} else if(temp_branch_phases == 0x05){//has phases A and C
-			double_phase_det = (NR_branchdata[temp_branch_fc].YSto[0]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[6]*NR_branchdata[temp_branch_fc].YSto[2]);
-			Z_temp[0][0] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
-			Z_temp[0][2] = -NR_branchdata[temp_branch_fc].YSto[2]/double_phase_det;
-			Z_temp[2][0] = -NR_branchdata[temp_branch_fc].YSto[6]/double_phase_det;
-			Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[0]/double_phase_det;
-		} else if(temp_branch_phases == 0x03){//has phases B and C
-			double_phase_det = (NR_branchdata[temp_branch_fc].YSto[4]*NR_branchdata[temp_branch_fc].YSto[8])-(NR_branchdata[temp_branch_fc].YSto[7]*NR_branchdata[temp_branch_fc].YSto[5]);
-			Z_temp[1][1] = NR_branchdata[temp_branch_fc].YSto[8]/double_phase_det;
-			Z_temp[1][2] = -NR_branchdata[temp_branch_fc].YSto[5]/double_phase_det;
-			Z_temp[2][1] = -NR_branchdata[temp_branch_fc].YSto[7]/double_phase_det;
-			Z_temp[2][2] = NR_branchdata[temp_branch_fc].YSto[4]/double_phase_det;
-		} else if(temp_branch_phases == 0x04){//has phase A
-			Z_temp[0][0] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[0];
-		} else if(temp_branch_phases == 0x02){//has phase B
-			Z_temp[1][1] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[4];
-		} else if(temp_branch_phases == 0x01){//has phase C
-			Z_temp[2][2] = complex(1,0)/NR_branchdata[temp_branch_fc].YSto[8];
-		}
-		addition(Z_thevenin,Z_temp,Z_thevenin);
-	}
-	inverse(Z_thevenin,Y_thevenin);
-	//calculate the full three phase to ground fault current at the swing bus
-	IP[0] = Y_thevenin[0][0]*V_sb[0] + Y_thevenin[0][1]*V_sb[1] + Y_thevenin[0][2]*V_sb[2];
-	IP[1] = Y_thevenin[1][0]*V_sb[0] + Y_thevenin[1][1]*V_sb[1] + Y_thevenin[1][2]*V_sb[2];
-	IP[2] = Y_thevenin[2][0]*V_sb[0] + Y_thevenin[2][1]*V_sb[1] + Y_thevenin[2][2]*V_sb[2];
-	IP[3] = 0;
-	IP[4] = 0;
-	IP[5] = 0;
-	IP[6] = 0;
-	//add the Y_thevenin matrix into the C matrix according to Kersting
-	C[0][3] = Y_thevenin[0][0];
-	C[0][4] = Y_thevenin[0][1];
-	C[0][5] = Y_thevenin[0][2];
-	C[0][6] = C[0][3]+C[0][4]+C[0][5];
-	C[1][3] = Y_thevenin[1][0];
-	C[1][4] = Y_thevenin[1][1];
-	C[1][5] = Y_thevenin[1][2];
-	C[1][6] = C[1][3]+C[1][4]+C[1][5];
-	C[2][3] = Y_thevenin[2][0];
-	C[2][4] = Y_thevenin[2][1];
-	C[2][5] = Y_thevenin[2][2];
-	C[2][6] = C[2][3]+C[2][4]+C[2][5];
-
-	if(fault_type == 1){//SLG-A
-		det = C[1][4]*C[2][5] - C[1][5]*C[1][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = complex(1,0);
-		C_inv[0][1] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
-		C_inv[0][2] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
-	} else if(fault_type == 2){//SLG-B
-		det = C[0][3]*C[2][5] - C[0][5]*C[0][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[1][1] = complex(1,0);
-		C_inv[1][0] = (C[0][5]*C[1][5] - C[0][4]*C[2][5])/det;
-		C_inv[1][2] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
-	} else if(fault_type == 3){//SLG-C
-		det = C[0][3]*C[1][4] - C[0][4]*C[0][4];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[2][2] = complex(1,0);
-		C_inv[2][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4])/det;
-		C_inv[2][1] = (C[0][4]*C[0][5] - C[0][3]*C[1][5])/det;
-	} else if(fault_type == 4){//DLG-AB
-		det = C[2][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = C_inv[1][1] = complex(1,0);
-		C_inv[0][2] = -C[0][5]/det;
-		C_inv[1][2] = -C[1][5]/det;
-	} else if(fault_type == 5){//DLG-BC
-		det = C[0][3];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[1][1] = C_inv[2][2] = complex(1,0);
-		C_inv[1][0] = -C[0][4]/det;
-		C_inv[2][0] = -C[0][5]/det;
-	} else if(fault_type == 6){//DLG-CA
-		det = C[1][4];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = C_inv[2][2] = complex(1,0);
-		C_inv[0][1] = -C[0][4]/det;
-		C_inv[2][1] = -C[1][5]/det;
-	} else if(fault_type == 7){//LL-AB
-		det= C[0][5]*C[0][5] + complex(2,0)*C[0][5]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[2][5] - complex(2,0)*C[0][4]*C[2][5] - C[1][4]*C[2][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = (C[1][5]*C[1][5] + C[0][5]*C[1][5] - C[0][4]*C[2][5] - C[1][4]*C[2][5])/det;
-		C_inv[0][1] = -(C[0][5]*C[0][5] + C[1][5]*C[0][5] - C[0][3]*C[2][5] - C[0][4]*C[2][5])/det;
-		C_inv[0][2] = (C[0][4]*C[0][5] + C[0][5]*C[1][4] - C[0][4]*C[1][5] - C[0][3]*C[1][5])/det;
-		C_inv[1][1] = -C_inv[0][1];
-		C_inv[1][2] = -C_inv[0][2];
-		C_inv[1][0] = -C_inv[0][0];
-	} else if(fault_type == 8){//LL-BC
-		det= C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[0][5] + C[0][5]*C[0][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][3]*C[1][5] - C[0][3]*C[2][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[1][0] = (C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
-		C_inv[1][1] = (C[0][5]*C[0][5] + C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][3]*C[2][5])/det;
-		C_inv[1][2] = -(C[0][4]*C[0][4] + C[0][5]*C[0][4] - C[0][3]*C[1][4] - C[0][3]*C[1][5])/det;
-		C_inv[2][0] = -C_inv[1][0];
-		C_inv[2][2] = -C_inv[1][2];
-		C_inv[2][1] = -C_inv[1][1];
-	} else if(fault_type == 9){//LL-CA
-		det= -(C[0][4]*C[0][4] + complex(2,0)*C[0][4]*C[1][5] + C[1][5]*C[1][5] - C[0][3]*C[1][4] - complex(2,0)*C[0][5]*C[1][4] - C[1][4]*C[2][5]);
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = -(C[1][5]*C[1][5] + C[0][4]*C[1][5] - C[0][5]*C[1][4] - C[1][4]*C[2][5])/det;
-		C_inv[0][1] = -(C[0][4]*C[0][5] - C[0][3]*C[1][5] - C[0][5]*C[1][5] + C[0][4]*C[2][5])/det;
-		C_inv[0][2] = (C[0][4]*C[0][4] + C[1][5]*C[0][4] - C[0][3]*C[1][4] - C[0][5]*C[1][4])/det;
-		C_inv[2][1] = -C_inv[0][1];
-		C_inv[2][2] = -C_inv[0][2];
-		C_inv[2][0] = -C_inv[0][0];
-	} else if(fault_type == 10){//TLG
-		C_inv[0][0] = C_inv[1][1] = C_inv[2][2] = complex(1,0);
-	} else if(fault_type == 11){//TLL
-		det = C[0][3] + complex(2,0)*C[0][4] + complex(2,0)*C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5];
-		if(det.Mag() <= 1e-4)
-			GL_THROW("Distribution system is singular. Unable to solve for SC current.");
-		C_inv[0][0] = (C[0][4] + C[0][5] + C[1][4] + complex(2,0)*C[1][5] + C[2][5])/det;
-		C_inv[0][1] = C_inv[0][2] = -C[0][6]/det;
-		C_inv[1][0] = C_inv[1][2] = -C[1][6]/det;
-		C_inv[1][1] = (C[0][3] + C[0][4] + complex(2,0)*C[0][5] + C[1][5] + C[2][5])/det;
-		C_inv[2][0] = C_inv[2][1] = -C[2][6]/det;
-		C_inv[2][2] = (C[0][3] + complex(2,0)*C[0][4] + C[0][5] + C[1][4] + C[1][5])/det;
-	}
-	//decompose the C matrix
-//	lu_decomp(C, L, U);
-//	//solve A*x = b using forward and backward substitution, L*z = b and U*x = z 
-//	forward_sub(L, IP, zz);
-//	back_sub(U, zz, xx);
-
-	//pass the fault current back down to the faulted object
-	NR_branchdata[temp_branch_fc].If_to[0] = C_inv[0][0]*IP[0] + C_inv[0][1]*IP[1] + C_inv[0][2]*IP[2];
-	NR_branchdata[temp_branch_fc].If_to[1] = C_inv[1][0]*IP[0] + C_inv[1][1]*IP[1] + C_inv[1][2]*IP[2];
-	NR_branchdata[temp_branch_fc].If_to[2] = C_inv[2][0]*IP[0] + C_inv[2][1]*IP[1] + C_inv[2][2]*IP[2];
-	temp_node = NR_branchdata[temp_branch_fc].from;
-	branchNum = 0; // indicate whether all link directly connected to the temp_node has been processed
-
-	while (NR_busdata[temp_node].type != 2)
-	{
-		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
-			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
-			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
-				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
-				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
-				temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
-				temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
-				if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+		while (NR_busdata[temp_node].type != 2)
+		{
+			if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+				temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+				temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+				if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+					temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+					temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+					temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+					temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+					if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+						if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+							getDwLinkCurr(temp_branch_fc);
+						}
+						temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
+					} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+						gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else if(temp_connection_type == 4){// Single phase transformer
+						gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else {//split-phase transformer
+						gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					}
+				} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
 					if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
 						getDwLinkCurr(temp_branch_fc);
 					}
-					temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
-				} else if(temp_connection_type == 3){//Delta grounded WYE transformer
-					gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
-				} else if(temp_connection_type == 4){// Single phase transformer
-					gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
-				} else {//split-phase transformer
-					gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+					gl_warning("regulators are neglected from the fault calculation");
+				} else {
+					GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
 				}
-			} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+			} else {
 				if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
 					getDwLinkCurr(temp_branch_fc);
 				}
 				NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
 				NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
 				NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
-				gl_warning("regulators are neglected from the fault calculation");
-			} else {
-				GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
 			}
-		} else {
-			if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
-				getDwLinkCurr(temp_branch_fc);
-			}
-			NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
-			NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
-			NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
-		}
 
-		// Check is all the upstream branches directly connected to the temp_node have been processed
-		if (branchNum > 2) {
-			branchNum = 0;
-			temp_node = NR_branchdata[temp_branch_fc].from;
-			temp_branch_fc = NR_busdata[temp_node].link_directConnect[branchNum];
-			branchNum++;
-		}
-		else {
-			if (NR_busdata[temp_node].link_directConnect[branchNum] != -2) {
+			// Check is all the upstream branches directly connected to the temp_node have been processed
+			if (branchNum > 2) {
+				branchNum = 0;
+				temp_node = NR_branchdata[temp_branch_fc].from;
 				temp_branch_fc = NR_busdata[temp_node].link_directConnect[branchNum];
 				branchNum++;
 			}
 			else {
-				branchNum = 0;
-				temp_node = NR_branchdata[temp_branch_fc].from; // find the from node (upstream node) of the current branch
-				if (NR_busdata[temp_node].type != 2) {
-					temp_branch_fc = NR_busdata[temp_node].link_directConnect[branchNum];// Find the directed connected upstream branch of the current branch
+				if (NR_busdata[temp_node].link_directConnect[branchNum] != -2) {
+					temp_branch_fc = NR_busdata[temp_node].link_directConnect[branchNum];
+					branchNum++;
+				}
+				else {
+					branchNum = 0;
+					temp_node = NR_branchdata[temp_branch_fc].from; // find the from node (upstream node) of the current branch
+					if (NR_busdata[temp_node].type != 2) {
+						temp_branch_fc = NR_busdata[temp_node].link_directConnect[branchNum];// Find the directed connected upstream branch of the current branch
+					}
 				}
 			}
+
 		}
 
-	}
-
-	//update the fault current variables in link object connected to the swing bus
-	while (branchNum < 3 && NR_busdata[temp_node].link_directConnect[branchNum] != -2) {
-		if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
-			temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
-			temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
-			if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
-				temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
-				temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
-				temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
-				temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
-				if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+		//update the fault current variables in link object connected to the swing bus
+		while (branchNum < 3 && NR_busdata[temp_node].link_directConnect[branchNum] != -2) {
+			if(NR_branchdata[temp_branch_fc].lnk_type == 4){//transformer
+				temp_branch_name = NR_branchdata[temp_branch_fc].name;//get the name of the transformer object
+				temp_transformer = NR_branchdata[temp_branch_fc].obj;//get the transformer object
+				if(gl_object_isa(temp_transformer, "transformer", "powerflow")){ // tranformer
+					temp_trans_config = gl_get_property(temp_transformer,"configuration");//get pointer to the configuration property
+					temp_transformer_configuration = gl_get_object_prop(temp_transformer, temp_trans_config);//get the transformer configuration object
+					temp_con_typ = gl_get_property(*temp_transformer_configuration, "connect_type");//get pointer to the connection type
+					temp_connection_type = *(int *)gl_get_enum(*temp_transformer_configuration, temp_con_typ);//get connection type
+					if(temp_connection_type == 1 || temp_connection_type == 2){//WYE_WYE or DELTA-DELTA transformer
+						if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
+							getDwLinkCurr(temp_branch_fc);
+						}
+						temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
+						NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
+					} else if(temp_connection_type == 3){//Delta grounded WYE transformer
+						gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else if(temp_connection_type == 4){// Single phase transformer
+						gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					} else {//split-phase transformer
+						gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					}
+				} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
 					if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
 						getDwLinkCurr(temp_branch_fc);
 					}
-					temp_v_ratio = NR_branchdata[temp_branch_fc].v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0]/temp_v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1]/temp_v_ratio;
-					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2]/temp_v_ratio;
-				} else if(temp_connection_type == 3){//Delta grounded WYE transformer
-					gl_warning("Delta-grounded WYE transformers are not supported for fault analysis at this time. Fault current is not accurate.");
-				} else if(temp_connection_type == 4){// Single phase transformer
-					gl_warning("Single phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
-				} else {//split-phase transformer
-					gl_warning("split-phase transformers are not supported for fault analysis at this time. Fault current is not accurate.");
+					NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
+					NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
+					NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
+					gl_warning("regulators are neglected from the fault calculation");
+				} else {
+					GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
 				}
-			} else if (gl_object_isa(temp_transformer, "regulator", "powerflow")){ // regulator right now assumed to have all taps in neutral.
+			} else {
 				if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
 					getDwLinkCurr(temp_branch_fc);
 				}
 				NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
 				NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
 				NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
-				gl_warning("regulators are neglected from the fault calculation");
-			} else {
-				GL_THROW("link object is a type 4 but is not a transformer or a regulator!");
 			}
-		} else {
-			if(NR_branchdata[temp_branch_fc].fault_link_below[0] != -1){
-				getDwLinkCurr(temp_branch_fc);
-			}
-			NR_branchdata[temp_branch_fc].If_from[0] = NR_branchdata[temp_branch_fc].If_to[0];
-			NR_branchdata[temp_branch_fc].If_from[1] = NR_branchdata[temp_branch_fc].If_to[1];
-			NR_branchdata[temp_branch_fc].If_from[2] = NR_branchdata[temp_branch_fc].If_to[2];
-		}
 
-		// Loop through all possible most upstream branches in parallel
-		branchNum++;
-	}
+			// Loop through all possible most upstream branches in parallel
+			branchNum++;
+		}
+	}//End new fault check method
 }
 
 void link_object::getDwLinkCurr_parallel (int temp_branch_fc)

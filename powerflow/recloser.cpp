@@ -169,114 +169,196 @@ int recloser::init(OBJECT *parent)
 //sync function - serves only to reset number of tries
 TIMESTAMP recloser::sync(TIMESTAMP t0)
 {
-//	//Check and update time
-//	if (prev_rec_time != t0)
-//	{
-//		prev_rec_time = t0;
-//		curr_tries = 0.0;
-//	}
-//
-//	return switch_object::sync(t0);
-
 	TIMESTAMP t_return = TS_NEVER; // Time to return in presync, will be changed based on controlled device operation time
 	FUNCTIONADDR funadd = NULL;
 	int ext_result;
 	switch_object *pswitch;
 
-	switch_object::sync(t0);
-
-	// if the switch phases are all closed:
-	if ((phase_A_state == 1 && phase_B_state == 1 && phase_C_state == 1))
+	//See if we're "new mode" or not
+	if (meshed_fault_checking_enabled == false)
 	{
-		// Recloser has not yet planned to open
-		if (Flag_open == false) {
+		//Check and update time
+		if (prev_rec_time != t0)
+		{
+			prev_rec_time = t0;
+			curr_tries = 0.0;
+		}
 
-			// If current seen by the recloser is larger than the Ishort current
-			if (If_in[0].Mag()>Ishort || If_in[1].Mag()>Ishort || If_in[2].Mag()>Ishort)
-			{
-				t_fault = t0; // record the fault occuring time
-				t_open = t0 + (TIMESTAMP)(tshort); // Recloser will be opened at t_open time later
-				Flag_open= true;
+		t_return = switch_object::sync(t0);
+	}
+	else
+	{
+		t_return = switch_object::sync(t0);
 
-				if (count_fast > 0)
+		// if the switch phases are all closed:
+		if ((phase_A_state == 1 && phase_B_state == 1 && phase_C_state == 1))
+		{
+			// Recloser has not yet planned to open
+			if (Flag_open == false) {
+
+				// If current seen by the recloser is larger than the Ishort current
+				if (If_in[0].Mag()>Ishort || If_in[1].Mag()>Ishort || If_in[2].Mag()>Ishort)
 				{
-					count_fast--;
-				}
-				else
-				{
-					count_slow--;
-
-					// Lock the controller if all the tries have been run out
-					if (count_slow == 0) Flag_lock = true;
-
-				}
-			}
-
-			// If current seen by the recloser is larger than the trip current
-			else if (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)
-			{
-				double maxIf = fmax_3(If_in[0].Mag(), If_in[1].Mag(), If_in[2].Mag());
-
-				// if fast recloser has not being locked yet
-				if (count_fast > 0)
-				{
-					unsigned int rowNum = fastTCC.get_rows();
-					unsigned int colNum = fastTCC.get_cols();
-					double t_operation = -1.0; // Give a negative value at the begining
-
-					double_array* temp = &(fastTCC);
-					int test = temp->get_rows();
-
-					t_operation = cal_t_operation(&(fastTCC), colNum, maxIf);
-
 					t_fault = t0; // record the fault occuring time
-					t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
-					Flag_open = true;
+					t_open = t0 + (TIMESTAMP)(tshort); // Recloser will be opened at t_open time later
+					Flag_open= true;
 
-					count_fast--; // Count the fast-curve operation
-				}
-				else
-				{
-					unsigned int rowNum = slowTCC.get_rows();
-					unsigned int colNum = slowTCC.get_cols();
-					double t_operation = -1.0; // Give a negative value at the begining
+					if (count_fast > 0)
+					{
+						count_fast--;
+					}
+					else
+					{
+						count_slow--;
 
-					t_operation = cal_t_operation(&(slowTCC), colNum, maxIf);
+						// Lock the controller if all the tries have been run out
+						if (count_slow == 0) Flag_lock = true;
 
-					t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
-					Flag_open = true;
-
-					count_slow--; // Count the slow-curve operation
-
-					// If count of slow is zero, the recloser will be locked after opening
-					if (count_slow == 0) {
-						Flag_lock = true;
 					}
 				}
+
+				// If current seen by the recloser is larger than the trip current
+				else if (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)
+				{
+					double maxIf = fmax_3(If_in[0].Mag(), If_in[1].Mag(), If_in[2].Mag());
+
+					// if fast recloser has not being locked yet
+					if (count_fast > 0)
+					{
+						unsigned int rowNum = fastTCC.get_rows();
+						unsigned int colNum = fastTCC.get_cols();
+						double t_operation = -1.0; // Give a negative value at the begining
+
+						double_array* temp = &(fastTCC);
+						int test = temp->get_rows();
+
+						t_operation = cal_t_operation(&(fastTCC), colNum, maxIf);
+
+						t_fault = t0; // record the fault occuring time
+						t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+						Flag_open = true;
+
+						count_fast--; // Count the fast-curve operation
+					}
+					else
+					{
+						unsigned int rowNum = slowTCC.get_rows();
+						unsigned int colNum = slowTCC.get_cols();
+						double t_operation = -1.0; // Give a negative value at the begining
+
+						t_operation = cal_t_operation(&(slowTCC), colNum, maxIf);
+
+						t_open = t0 + (TIMESTAMP)ceil(t_operation); // Recloser will be opened at t_open time later
+						Flag_open = true;
+
+						count_slow--; // Count the slow-curve operation
+
+						// If count of slow is zero, the recloser will be locked after opening
+						if (count_slow == 0) {
+							Flag_lock = true;
+						}
+					}
+				}
+
+				if (t_return > t_open) {
+					t_return = t_open; // Will go to the t_open time to open the recloser
+				}
+
 			}
 
-			if (t_return > t_open) {
-				t_return = t_open; // Will go to the t_open time to open the recloser
+			// If flag_open is true and recloser will be open at t_open
+			else {
+				// After setting flag_open as true, iteration of the same time step comes to this part before time reaches t_open.
+				// Need to set the return time to t_open again, or the time to open the recloser will not be reached
+				if (t0 < t_open) {
+					t_return = t_open;
+				}
+				// If current time is t_open, and the fault current seen is still larger than the recloser trip current
+				if (t0 == t_open && (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)) {
+
+					enumeration phase_A_state_check1 = phase_A_state;
+					enumeration phase_B_state_check1 = phase_B_state;
+					enumeration phase_C_state_check1 = phase_C_state;
+
+					// Assume now recloser is always banked switch
+					set_switch(false);
+
+					// Make sure set_switch works
+					phase_A_state_check1 = phase_A_state;
+					phase_B_state_check1 = phase_B_state;
+					phase_C_state_check1 = phase_C_state;
+
+					NR_admit_change = true;
+
+					Flag_open = false;
+
+					t_close = t0+t_reclose;
+
+					t_open = TS_NEVER;	// reset the opening time
+
+					if (t_return > t_close) {
+						t_return = t_close; //  will go to the time that recloser is planned to be re-closed
+					}
+
+					//Safety device enacted - now call fault_check function and let it remove all invalid objects
+					//Map the function
+					funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
+
+					//Make sure it was found
+					if (funadd == NULL)
+					{
+						GL_THROW("Unable to update objects for reliability effects");
+						/*  TROUBLESHOOT
+						While attempting to update the powerflow to properly represent the new post-fault state, an error
+						occurred.  If the problem persists, please submit a bug report and your code to the trac website.
+						*/
+					}
+
+					//Update powerflow - removal mode
+					ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
+
+					//Make sure it worked
+					if (ext_result != 1)
+					{
+						GL_THROW("Unable to update objects for reliability effects");
+						//defined above
+					}
+
+				}
+				// If the current time comes to t_open, but the current seen by recloser is smaller than the trip current
+				else if (t0 == t_open && (If_in[0].Mag()<Itrip && If_in[1].Mag()<Itrip && If_in[2].Mag()<Itrip)) {
+
+					Flag_open = false; // will not open the recloser
+					t_fault = TS_NEVER; //set the time recloser sees fault as default value
+					t_open = TS_NEVER;	// reset the opening time
+					count_fast = lockout_fast; // reset the fast-curve count as default values
+					count_slow = lockout_slow; // reset the slow-curve count as default values
+
+
+					if (t_return > TS_NEVER) {
+						t_return = TS_NEVER; // Since there is no fault seen, will go to the end of the simulation (if still no event occurs)
+					}
+				}
+
 			}
 
 		}
-
-		// If flag_open is true and recloser will be open at t_open
-		else {
-			// After setting flag_open as true, iteration of the same time step comes to this part before time reaches t_open.
-			// Need to set the return time to t_open again, or the time to open the recloser will not be reached
-			if (t0 < t_open) {
-				t_return = t_open;
+		else
+		// if any of the switch phases is opened:
+		{
+			// After opening of the recloser, iteration of the same time step occurs, therefore need to tell again the expected return time
+			if (t0 < t_close && Flag_lock == false) {
+				t_return = t_close; //  will go to the time that recloser is planned to be re-closed
 			}
-			// If current time is t_open, and the fault current seen is still larger than the recloser trip current
-			if (t0 == t_open && (If_in[0].Mag()>Itrip || If_in[1].Mag()>Itrip || If_in[2].Mag()>Itrip)) {
 
+			// Close the recloser when time comes
+			if (t0 == t_close && Flag_lock == false) {
 				enumeration phase_A_state_check1 = phase_A_state;
 				enumeration phase_B_state_check1 = phase_B_state;
 				enumeration phase_C_state_check1 = phase_C_state;
 
 				// Assume now recloser is always banked switch
-				set_switch(false);
+				set_switch(true);
 
 				// Make sure set_switch works
 				phase_A_state_check1 = phase_A_state;
@@ -285,15 +367,12 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 
 				NR_admit_change = true;
 
-				Flag_open = false;
+				t_open = TS_NEVER; // reset the t_open time
+				t_close = 0; //reset the t_close time
 
-				t_close = t0+t_reclose;
+				Flag_open = false; // reset the flag-open to false so that current seen by recloser will be examined
 
-				t_open = TS_NEVER;	// reset the opening time
-
-				if (t_return > t_close) {
-					t_return = t_close; //  will go to the time that recloser is planned to be re-closed
-				}
+				t_return = t0; // will iterate again to check the current seen by the recloser
 
 				//Safety device enacted - now call fault_check function and let it remove all invalid objects
 				//Map the function
@@ -310,7 +389,7 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 				}
 
 				//Update powerflow - removal mode
-				ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,false);
+				ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,true);
 
 				//Make sure it worked
 				if (ext_result != 1)
@@ -318,88 +397,14 @@ TIMESTAMP recloser::sync(TIMESTAMP t0)
 					GL_THROW("Unable to update objects for reliability effects");
 					//defined above
 				}
+			}
+			// If recloser is locked, should wait until human intervention to reset the recloser
+			else if (Flag_lock == true) {
+				// Do nothing now
 
 			}
-			// If the current time comes to t_open, but the current seen by recloser is smaller than the trip current
-			else if (t0 == t_open && (If_in[0].Mag()<Itrip && If_in[1].Mag()<Itrip && If_in[2].Mag()<Itrip)) {
-
-				Flag_open = false; // will not open the recloser
-				t_fault = TS_NEVER; //set the time recloser sees fault as default value
-				t_open = TS_NEVER;	// reset the opening time
-				count_fast = lockout_fast; // reset the fast-curve count as default values
-				count_slow = lockout_slow; // reset the slow-curve count as default values
-
-
-				if (t_return > TS_NEVER) {
-					t_return = TS_NEVER; // Since there is no fault seen, will go to the end of the simulation (if still no event occurs)
-				}
-			}
-
 		}
-
-	}
-	else
-	// if any of the switch phases is opened:
-	{
-		// After opening of the recloser, iteration of the same time step occurs, therefore need to tell again the expected return time
-		if (t0 < t_close && Flag_lock == false) {
-			t_return = t_close; //  will go to the time that recloser is planned to be re-closed
-		}
-
-		// Close the recloser when time comes
-		if (t0 == t_close && Flag_lock == false) {
-			enumeration phase_A_state_check1 = phase_A_state;
-			enumeration phase_B_state_check1 = phase_B_state;
-			enumeration phase_C_state_check1 = phase_C_state;
-
-			// Assume now recloser is always banked switch
-			set_switch(true);
-
-			// Make sure set_switch works
-			phase_A_state_check1 = phase_A_state;
-			phase_B_state_check1 = phase_B_state;
-			phase_C_state_check1 = phase_C_state;
-
-			NR_admit_change = true;
-
-			t_open = TS_NEVER; // reset the t_open time
-			t_close = 0; //reset the t_close time
-
-			Flag_open = false; // reset the flag-open to false so that current seen by recloser will be examined
-
-			t_return = t0; // will iterate again to check the current seen by the recloser
-
-			//Safety device enacted - now call fault_check function and let it remove all invalid objects
-			//Map the function
-			funadd = (FUNCTIONADDR)(gl_get_function(fault_check_object,"reliability_alterations"));
-
-			//Make sure it was found
-			if (funadd == NULL)
-			{
-				GL_THROW("Unable to update objects for reliability effects");
-				/*  TROUBLESHOOT
-				While attempting to update the powerflow to properly represent the new post-fault state, an error
-				occurred.  If the problem persists, please submit a bug report and your code to the trac website.
-				*/
-			}
-
-			//Update powerflow - removal mode
-			ext_result = ((int (*)(OBJECT *, int, bool))(*funadd))(fault_check_object,0,true);
-
-			//Make sure it worked
-			if (ext_result != 1)
-			{
-				GL_THROW("Unable to update objects for reliability effects");
-				//defined above
-			}
-		}
-		// If recloser is locked, should wait until human intervention to reset the recloser
-		else if (Flag_lock == true) {
-			// Do nothing now
-
-		}
-	}
-
+	}//End "new" method
 
 	if (t_return == TS_NEVER)
 	{
