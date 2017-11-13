@@ -249,12 +249,18 @@ int fuse::init(OBJECT *parent)
 		From_Y[0][1] = From_Y[0][2] = From_Y[1][0] = 0.0;
 		From_Y[1][2] = From_Y[2][0] = From_Y[2][1] = 0.0;
 
+		b_mat[0][1] = b_mat[0][2] = b_mat[1][0] = 0.0;
+		b_mat[1][2] = b_mat[2][0] = b_mat[2][1] = 0.0;
 
 		if (status==LS_OPEN)	//Take this as all should be open
 		{
 			From_Y[0][0] = complex(0.0,0.0);
 			From_Y[1][1] = complex(0.0,0.0);
 			From_Y[2][2] = complex(0.0,0.0);
+
+			b_mat[0][0] = complex(0.0,0.0);
+			b_mat[1][1] = complex(0.0,0.0);
+			b_mat[2][2] = complex(0.0,0.0);
 
 			phase_A_state = phase_B_state = phase_C_state = BLOWN;	//All open
 			phased_fuse_status = 0x00;								//Confirm here
@@ -265,12 +271,14 @@ int fuse::init(OBJECT *parent)
 			{
 				if (phase_A_state == GOOD)
 				{
-					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					phased_fuse_status |= 0x04;
 				}
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
+					b_mat[0][0] = complex(0.0,0.0);
 					phased_fuse_status &=0xFB;
 				}
 			}
@@ -279,12 +287,14 @@ int fuse::init(OBJECT *parent)
 			{
 				if (phase_B_state == GOOD)
 				{
-					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					phased_fuse_status |= 0x02;
 				}
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
+					b_mat[1][1] = complex(0.0,0.0);
 					phased_fuse_status &=0xFD;
 				}
 			}
@@ -293,12 +303,14 @@ int fuse::init(OBJECT *parent)
 			{
 				if (phase_C_state == GOOD)
 				{
-					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					phased_fuse_status |= 0x01;
 				}
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
+					b_mat[2][2] = complex(0.0,0.0);
 					phased_fuse_status &=0xFE;
 				}
 			}
@@ -1327,6 +1339,10 @@ void fuse::fuse_change_status_function()
 			From_Y[1][1] = complex(0.0,0.0);
 			From_Y[2][2] = complex(0.0,0.0);
 
+			b_mat[0][0] = complex(0.0,0.0);
+			b_mat[1][1] = complex(0.0,0.0);
+			b_mat[2][2] = complex(0.0,0.0);
+
 			a_mat[0][0] = d_mat[0][0] = A_mat[0][0] = 0.0;
 			a_mat[1][1] = d_mat[1][1] = A_mat[1][1] = 0.0;
 			a_mat[2][2] = d_mat[2][2] = A_mat[2][2] = 0.0;
@@ -1346,7 +1362,8 @@ void fuse::fuse_change_status_function()
 			{
 				if (phase_A_state == GOOD)
 				{
-					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					a_mat[0][0] = d_mat[0][0] = A_mat[0][0] = 1.0;
 					pres_status |= 0x04;
 					NR_branchdata[NR_branch_reference].phases |= 0x04;	//Ensure we're set
@@ -1358,6 +1375,7 @@ void fuse::fuse_change_status_function()
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
+					b_mat[0][0] = complex(0.0,0.0);
 					a_mat[0][0] = d_mat[0][0] = A_mat[0][0] = 0.0;
 					NR_branchdata[NR_branch_reference].phases &= 0xFB;	//Make sure we're removed
 					if (meshed_fault_checking_enabled==true)	//Different operating mode
@@ -1371,7 +1389,8 @@ void fuse::fuse_change_status_function()
 			{
 				if (phase_B_state == GOOD)
 				{
-					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					a_mat[1][1] = d_mat[1][1] = A_mat[1][1] = 1.0;
 					pres_status |= 0x02;
 					NR_branchdata[NR_branch_reference].phases |= 0x02;	//Ensure we're set
@@ -1383,6 +1402,7 @@ void fuse::fuse_change_status_function()
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
+					b_mat[1][1] = complex(0.0,0.0);
 					a_mat[1][1] = d_mat[1][1] = A_mat[1][1] = 0.0;
 					NR_branchdata[NR_branch_reference].phases &= 0xFD;	//Make sure we're removed
 					if (meshed_fault_checking_enabled==true)	//Different operating mode
@@ -1396,7 +1416,8 @@ void fuse::fuse_change_status_function()
 			{
 				if (phase_C_state == GOOD)
 				{
-					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					a_mat[2][2] = d_mat[2][2] = A_mat[2][2] = 1.0;
 					pres_status |= 0x01;
 					NR_branchdata[NR_branch_reference].phases |= 0x01;	//Ensure we're set
@@ -1408,6 +1429,7 @@ void fuse::fuse_change_status_function()
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
+					b_mat[2][2] = complex(0.0,0.0);
 					a_mat[2][2] = d_mat[2][2] = A_mat[2][2] = 0.0;
 					NR_branchdata[NR_branch_reference].phases &= 0xFE;	//Make sure we're removed
 					if (meshed_fault_checking_enabled==true)	//Different operating mode
@@ -1452,6 +1474,10 @@ void fuse::fuse_sync_function(void)
 			From_Y[1][1] = complex(0.0,0.0);
 			From_Y[2][2] = complex(0.0,0.0);
 
+			b_mat[0][0] = complex(0.0,0.0);
+			b_mat[1][1] = complex(0.0,0.0);
+			b_mat[2][2] = complex(0.0,0.0);
+
 			phase_A_state = phase_B_state = phase_C_state = BLOWN;	//All open
 			NR_branchdata[NR_branch_reference].phases &= 0xF0;		//Remove all our phases
 			
@@ -1467,7 +1493,8 @@ void fuse::fuse_sync_function(void)
 			{
 				if (phase_A_state == GOOD)
 				{
-					From_Y[0][0] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[0][0] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					pres_status |= 0x04;
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
@@ -1484,6 +1511,7 @@ void fuse::fuse_sync_function(void)
 				else	//Must be open
 				{
 					From_Y[0][0] = complex(0.0,0.0);
+					b_mat[0][0] = complex(0.0,0.0);
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
 					if ((prev_full_status & 0x04) != 0x00)
@@ -1502,7 +1530,8 @@ void fuse::fuse_sync_function(void)
 			{
 				if (phase_B_state == GOOD)
 				{
-					From_Y[1][1] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[1][1] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					pres_status |= 0x02;
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
@@ -1519,6 +1548,7 @@ void fuse::fuse_sync_function(void)
 				else	//Must be open
 				{
 					From_Y[1][1] = complex(0.0,0.0);
+					b_mat[1][1] = complex(0.0,0.0);
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
 					if ((prev_full_status & 0x02) != 0x00)
@@ -1536,7 +1566,8 @@ void fuse::fuse_sync_function(void)
 			{
 				if (phase_C_state == GOOD)
 				{
-					From_Y[2][2] = complex(1/fuse_resistance,1/fuse_resistance);
+					From_Y[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
+					b_mat[2][2] = complex(1.0/fuse_resistance,1.0/fuse_resistance);
 					pres_status |= 0x01;
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
@@ -1553,6 +1584,7 @@ void fuse::fuse_sync_function(void)
 				else	//Must be open
 				{
 					From_Y[2][2] = complex(0.0,0.0);
+					b_mat[2][2] = complex(0.0,0.0);
 
 					//See if this changed from expectations - this prevents fuse from overriding fault_check/reliability
 					if ((prev_full_status & 0x01) != 0x00)

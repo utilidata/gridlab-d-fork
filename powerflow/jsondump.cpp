@@ -45,6 +45,8 @@ jsondump::jsondump(MODULE *mod)
 			PT_int32,"runcount",PADDR(runcount),PT_ACCESS,PA_REFERENCE,PT_DESCRIPTION,"the number of times the file has been written to",
 			PT_bool,"write_line",PADDR(write_line),PT_DESCRIPTION,"Flag indicating whether line information will be written into JSON file or not",
 			PT_bool,"write_reliability",PADDR(write_reliability),PT_DESCRIPTION,"Flag indicating whether reliabililty information will be written into JSON file or not",
+			PT_bool,"impedance_per_unit",PADDR(write_per_unit),PT_DESCRIPTION,"Output the impedance quantities as per-unit values",
+			PT_double,"system_base[VA]",PADDR(system_VA_base),PT_DESCRIPTION,"System base power rating for per-unit calculations",
 
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 	}
@@ -55,6 +57,8 @@ int jsondump::create(void)
 	// Set write flag default as false
 	write_line = false;
 	write_reliability = false;
+	write_per_unit = false;	//By default, do full values
+	system_VA_base = -1.0;		//Flag value
 
 	group.erase();
 	runcount = 0;
@@ -64,6 +68,8 @@ int jsondump::create(void)
 
 int jsondump::init(OBJECT *parent)
 {
+	OBJECT *hdr = OBJECTHDR(this);
+
 	// Check if we need to dump line and line configuration to JSON file
 	if(filename_dump_line[0] == '\0' && write_line == true){
 		filename_dump_line = "JSON_dump_line.json";
@@ -71,7 +77,21 @@ int jsondump::init(OBJECT *parent)
 
 	// Check if we need to dump reliability to JSON file
 	if(filename_dump_reliability[0] == '\0' && write_reliability == true){
-		filename_dump_line = "JSON_dump_reliability.json";
+		filename_dump_reliability = "JSON_dump_reliability.json";
+	}
+
+	//Check per-unitization
+	if ((filename_dump_line[0] != '\0') && (write_line == true) && (write_per_unit == true))
+	{
+		//Make sure the base value is proper
+		if (system_VA_base <= 0.0)
+		{
+			GL_THROW("jsondump:%d-%s -- If per-unit impedance is desired, a valid system_base must be specified!",hdr->id,(hdr->name ? hdr->name : "Unnamed"));
+			/*  TROUBLESHOOT
+			To use the per-unit functionality of the jsdondump object, a valid system base must be specified (>0.0).
+			Please try again.
+			*/
+		}
 	}
 
 	return 1;
@@ -80,6 +100,7 @@ int jsondump::init(OBJECT *parent)
 int jsondump::dump_line()
 {
 	FINDLIST *ohlines, *tplines, *uglines, *lineConfs, *tpLineConfs, *tpTransformers;
+	OBJECT *objhdr = OBJECTHDR(this);
 	OBJECT *obj = NULL;
 	OBJECT *obj_lineConf = NULL;
 	OBJECT *obj_tplineConf = NULL;
@@ -90,8 +111,13 @@ int jsondump::dump_line()
 	char timestr[64];
 	PROPERTY *xfmrconfig;
 	int phaseCount;
-	complex b_mat_xfmr[3][3];//used to store transformer bmatrix
-	complex b_mat_xfmr_inv[3][3];//used to store transformer bmatrix inverse
+	gld_property *pBase_Quantity;
+	double per_unit_base, temp_impedance_base;
+	int indexA, indexB;
+	complex *b_mat_pu;
+	bool *b_mat_defined;
+	complex *b_mat_tp_pu;
+	bool  *b_mat_tp_defined;
 
 	// metrics JSON value
 	Json::Value metrics_lines;	// Output dictionary for line and line configuration metrics
@@ -131,17 +157,55 @@ int jsondump::dump_line()
 
 	//write style sheet info
 	metrics_lines["$schema"] = "http://json-schema.org/draft-04/schema#";
-	metrics_lines["description"] = "These file describes the line and line configuration data";
+	metrics_lines["description"] = "This file describes the line and line configuration data";
 
 	// Define b_mat_pu and b_mat_tp_pu to store per unit bmatrix values
 	// Overhead and underground line configurations
 	pLineConf = (line_configuration **)gl_malloc((lineConfs->hit_count)*sizeof(line_configuration*));
-	complex b_mat_pu[(lineConfs->hit_count)][3][3];//used to store all line configuration bmatrix
-	bool  b_mat_defined[(lineConfs->hit_count)];//flag identifying whether defined already or not
-	if(pLineConf == NULL){
-		gl_error("Failed to allocate line configuration array.");
-		return TS_NEVER;
+
+	//Check it
+	if (pLineConf == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		/*  TROUBLESHOOT
+		While attempting to allocate memory for one of the search and output arrays, an error was
+		encountered.  Please try again.  If the error persists, please submit your code and a bug
+		report via the ticketing system.
+		*/
 	}
+
+	//Define b_mat_pu
+	b_mat_pu = (complex *)gl_malloc((lineConfs->hit_count)*9*sizeof(complex));
+
+	//Check it
+	if (b_mat_pu == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		//Defined above
+	}
+
+	//Zero it, to be safe
+	for (indexA=0; indexA < (lineConfs->hit_count*9); indexA++)
+	{
+		b_mat_pu[indexA] = complex(0.0,0.0);
+	}
+
+	//Define b_mat_defined
+	b_mat_defined = (bool *)gl_malloc((lineConfs->hit_count)*sizeof(bool));
+
+	//Zero it, to be safe
+	for (indexA=0; indexA < (lineConfs->hit_count); indexA++)
+	{
+		b_mat_defined[indexA] = false;
+	}
+
+	//Check it
+	if (b_mat_defined == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		//Defined above
+	}
+
 	while(obj_lineConf = gl_find_next(lineConfs,obj_lineConf)){
 		pLineConf[index] = OBJECTDATA(obj_lineConf,line_configuration);
 		index++;
@@ -149,12 +213,46 @@ int jsondump::dump_line()
 	// Triplex line configurations
 	index = 0;
 	pTpLineConf = (triplex_line_configuration **)gl_malloc((tpLineConfs->hit_count)*sizeof(triplex_line_configuration*));
-	complex b_mat_tp_pu[(tpLineConfs->hit_count)][3][3];//used to store all line configuration bmatrix
-	bool  b_mat_tp_defined[(tpLineConfs->hit_count)];//flag identifying whether defined already or not
-	if(pTpLineConf == NULL){
-		gl_error("Failed to allocate triplex line configuration array.");
-		return TS_NEVER;
+
+	//Check it
+	if (pTpLineConf == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		//Defined above
 	}
+
+	//Define b_mat_tp_pu
+	b_mat_tp_pu = (complex *)gl_malloc((tpLineConfs->hit_count)*9*sizeof(complex));
+
+	//Check it
+	if (b_mat_tp_pu == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		//Defined above
+	}
+
+	//Zero it, to be safe
+	for (indexA=0; indexA < (tpLineConfs->hit_count*9); indexA++)
+	{
+		b_mat_tp_pu[indexA] = complex(0.0,0.0);
+	}
+
+	//Define b_mat_tp_defined
+	b_mat_tp_defined = (bool *)gl_malloc((tpLineConfs->hit_count)*sizeof(bool));
+
+	//Check it
+	if (b_mat_tp_defined == NULL)
+	{
+		GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		//Defined above
+	}
+
+	//Zero it, to be safe
+	for (indexA=0; indexA < (tpLineConfs->hit_count); indexA++)
+	{
+		b_mat_tp_defined[indexA] = false;
+	}
+
 	while(obj_tplineConf = gl_find_next(tpLineConfs,obj_tplineConf)){
 		pTpLineConf[index] = OBJECTDATA(obj_tplineConf,triplex_line_configuration);
 		index++;
@@ -163,37 +261,48 @@ int jsondump::dump_line()
 	//write transformers
 	index = 0;
 	if(tpTransformers != NULL){
-		pTranformer = (transformer **)gl_malloc(tpTransformers->hit_count*sizeof(transformer*));
-		if(pTranformer == NULL){
-			gl_error("Failed to allocate transformer array.");
-			return TS_NEVER;
+		pTransformer = (transformer **)gl_malloc(tpTransformers->hit_count*sizeof(transformer*));
+
+		//Check it
+		if (pTransformer == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
 		}
+
 		while(obj = gl_find_next(tpTransformers,obj)){
 			if(index >= tpTransformers->hit_count){
 				break;
 			}
-			pTranformer[index] = OBJECTDATA(obj,transformer);
-			if(pTranformer[index] == NULL){
+			pTransformer[index] = OBJECTDATA(obj,transformer);
+			if(pTransformer[index] == NULL){
 				gl_error("Unable to map object as transformer object.");
 				return 0;
 			}
 
 			//write the transformer impedance
-			// Write the name (not id)
-			line_object["id"] = obj->name;
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				line_object["id"] = "Unnamed";
+			}
 
 			//write is_transformer
 			line_object["is_transformer"] = "true";
 
 			//write the num_phases
 			phaseCount = 0;
-			if(pTranformer[index]->has_phase(PHASE_A)){
+			if(pTransformer[index]->has_phase(PHASE_A)){
 				phaseCount++;
 			}
-			if(pTranformer[index]->has_phase(PHASE_B)){
+			if(pTransformer[index]->has_phase(PHASE_B)){
 				phaseCount++;
 			}
-			if(pTranformer[index]->has_phase(PHASE_C)){
+			if(pTransformer[index]->has_phase(PHASE_C)){
 				phaseCount++;
 			}
 			if(phaseCount != 0){
@@ -204,22 +313,49 @@ int jsondump::dump_line()
 			}
 
 			//write line phases as boolean values
-			sprintf(buffer, "[%s, %s, %s]", (pTranformer[index]->has_phase(PHASE_A)? "true":"false"),(pTranformer[index]->has_phase(PHASE_B)? "true":"false"), (pTranformer[index]->has_phase(PHASE_C)? "true":"false"));
+			sprintf(buffer, "[%s, %s, %s]", (pTransformer[index]->has_phase(PHASE_A)? "true":"false"),(pTransformer[index]->has_phase(PHASE_B)? "true":"false"), (pTransformer[index]->has_phase(PHASE_C)? "true":"false"));
 			line_object["has_phase"] = buffer;
 
-			// Obtain inverse of b_mat matrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					b_mat_xfmr[m][n] = pTranformer[index]->b_mat[m][n];
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				pBase_Quantity = new gld_property(pTransformer[index]->to,"nominal_voltage");
+
+				//Make sure it worked
+				if (pBase_Quantity->is_valid() != true)
+				{
+					GL_THROW("jsdondump:%d %s - Unable to map transformer per-unit base property",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+					/*  TROUBLESHOOT
+					While attempting to map the base quantity for a transformer per-unit calculation, an error occurred.  Please try again.
+					If the error persists, please submit your system and a bug report via the ticketing system.
+					*/
 				}
+
+				//Pull the voltage base value
+				per_unit_base = pBase_Quantity->get_double();
+
+				//Now get ride of the item
+				delete pBase_Quantity;
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}
+			else
+			{
+				temp_impedance_base = 1.0;
 			}
 
-			inverse(b_mat_xfmr,b_mat_xfmr_inv);
+			//Clear the arrays, just to be safe
+			jsonArray1.clear();
+			jsonArray2.clear();
 
 			// write rmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_xfmr_inv[m][n].Re());
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(pTransformer[index]->b_mat[indexA][indexB].Re()/temp_impedance_base);
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -228,9 +364,11 @@ int jsondump::dump_line()
 			jsonArray2.clear();
 
 			//write xmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_xfmr_inv[m][n].Im());
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(pTransformer[index]->b_mat[indexA][indexB].Im()/temp_impedance_base);
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -245,17 +383,21 @@ int jsondump::dump_line()
 			line_object.clear();
 
 			index++;
-		}
+		}//End of transformer searching
 	}
 
 	//write the overhead_lines
 	index = 0;
 	if(ohlines != NULL){
 		pOhLine = (line **)gl_malloc(ohlines->hit_count*sizeof(line*));
-		if(pOhLine == NULL){
-			gl_error("Failed to allocate line array.");
-			return TS_NEVER;
+
+		//Check it
+		if (pOhLine == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
 		}
+
 		while(obj = gl_find_next(ohlines,obj)){
 			if(index >= ohlines->hit_count){
 				break;
@@ -267,12 +409,36 @@ int jsondump::dump_line()
 			}
 
 			// Write the overhead_line metrics
-			// Write the name (not id)
-			line_object["id"] = obj->name;
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				line_object["id"] = "Unnamed";
+			}
+
 			//write from node name
-			line_object["node1_id"] = pOhLine[index]->from->name;
+			if (pOhLine[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pOhLine[index]->from->name;
+			}
+			else
+			{
+				line_object["node1_id"] = "Unnamed";
+			}
+
 			//write to node name
-			line_object["node2_id"] = pOhLine[index]->to->name;
+			if (pOhLine[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pOhLine[index]->to->name;
+			}
+			else
+			{
+				line_object["node2_id"] = "Unnamed";
+			}
+
 			//write line phases as boolean values
 			sprintf(buffer, "[%s, %s, %s]", (pOhLine[index]->has_phase(PHASE_A)? "true":"false"),(pOhLine[index]->has_phase(PHASE_B)? "true":"false"), (pOhLine[index]->has_phase(PHASE_C)? "true":"false"));
 			line_object["has_phase"] = buffer;
@@ -300,16 +466,47 @@ int jsondump::dump_line()
 			//write is_transformer (now only write line object, so will only be false)
 			line_object["is_transformer"] = "false";
 
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				pBase_Quantity = new gld_property(pOhLine[index]->to,"nominal_voltage");
+
+				//Make sure it worked
+				if (pBase_Quantity->is_valid() != true)
+				{
+					GL_THROW("jsdondump:%d %s - Unable to map overhead line per-unit base property",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+					/*  TROUBLESHOOT
+					While attempting to map the base quantity for a overhead line per-unit calculation, an error occurred.  Please try again.
+					If the error persists, please submit your system and a bug report via the ticketing system.
+					*/
+				}
+
+				//Pull the voltage base value
+				per_unit_base = pBase_Quantity->get_double();
+
+				//Now get ride of the item
+				delete pBase_Quantity;
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+
 			//write line configuration, here also start to store per unit configuration data
 			line_configuration *config = OBJECTDATA(pOhLine[index]->configuration, line_configuration);
 			int i = 0;
 			for (; i < lineConfs->hit_count; i++) {
-				if ((strcmp(pLineConf[i]->get_name(),config->get_name())) == 0) break;
+				if ((strcmp(pLineConf[i]->get_name(),config->get_name())) == 0)
+					break;
 			}
 			if ((i < lineConfs->hit_count) && (b_mat_defined[i] != true)) {
 				for (int m = 0; m < 3; m++) {
 					for (int n = 0; n < 3; n++) {
-						b_mat_pu[i][m][n] = (pOhLine[index]->b_mat[m][n])/((pOhLine[index]->length)/5280.0);
+						b_mat_pu[i*9+m*3+n] = (pOhLine[index]->b_mat[m][n])/(((pOhLine[index]->length)/5280.0)/temp_impedance_base);
 					}
 				}
 				b_mat_defined[i] = true;
@@ -347,10 +544,14 @@ int jsondump::dump_line()
 	index = 0;
 	if(uglines != NULL){
 		pUgLine = (line **)gl_malloc(uglines->hit_count*sizeof(line*));
-		if(pUgLine == NULL){
-			gl_error("Failed to allocate line array.");
-			return TS_NEVER;
+
+		//Check it
+		if (pUgLine == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
 		}
+
 		while(obj = gl_find_next(uglines,obj)){
 			if(index >= uglines->hit_count){
 				break;
@@ -362,12 +563,36 @@ int jsondump::dump_line()
 			}
 
 			//write the underground
-			// Write the name (not id)
-			line_object["id"] = obj->name;
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				line_object["id"] = "Unnamed";
+			}
+
 			//write from node name
-			line_object["node1_id"] = pUgLine[index]->from->name;
+			if (pUgLine[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pUgLine[index]->from->name;
+			}
+			else
+			{
+				line_object["node1_id"] = "Unnamed";
+			}
+
 			//write to node name
-			line_object["node2_id"] = pUgLine[index]->to->name;
+			if (pUgLine[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pUgLine[index]->to->name;
+			}
+			else
+			{
+				line_object["node2_id"] = "Unnamed";
+			}
+
 			//write line phases as boolean values
 			sprintf(buffer, "[%s, %s, %s]", (pUgLine[index]->has_phase(PHASE_A)? "true":"false"),(pUgLine[index]->has_phase(PHASE_B)? "true":"false"), (pUgLine[index]->has_phase(PHASE_C)? "true":"false"));
 			line_object["has_phase"] = buffer;
@@ -395,16 +620,47 @@ int jsondump::dump_line()
 			//write is_transformer (now only write line object, so will only be false)
 			line_object["is_transformer"] = "false";
 
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				pBase_Quantity = new gld_property(pUgLine[index]->to,"nominal_voltage");
+
+				//Make sure it worked
+				if (pBase_Quantity->is_valid() != true)
+				{
+					GL_THROW("jsdondump:%d %s - Unable to map underground line per-unit base property",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+					/*  TROUBLESHOOT
+					While attempting to map the base quantity for a underground line per-unit calculation, an error occurred.  Please try again.
+					If the error persists, please submit your system and a bug report via the ticketing system.
+					*/
+				}
+
+				//Pull the voltage base value
+				per_unit_base = pBase_Quantity->get_double();
+
+				//Now get ride of the item
+				delete pBase_Quantity;
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+
 			//write line configuration, here also start to store per unit configuration data
 			line_configuration *config = OBJECTDATA(pUgLine[index]->configuration, line_configuration);
 			int i = 0;
 			for (; i < lineConfs->hit_count; i++) {
-				if ((strcmp(pLineConf[i]->get_name(),config->get_name())) == 0) break;
+				if ((strcmp(pLineConf[i]->get_name(),config->get_name())) == 0)
+					break;
 			}
 			if ((i < lineConfs->hit_count) && (b_mat_defined[i] != true)) {
 				for (int m = 0; m < 3; m++) {
 					for (int n = 0; n < 3; n++) {
-						b_mat_pu[i][m][n] = (pUgLine[index]->b_mat[m][n])/((pUgLine[index]->length)/5280.0);
+						b_mat_pu[i*9+m*3+n] = (pUgLine[index]->b_mat[m][n])/(((pUgLine[index]->length)/5280.0)/temp_impedance_base);
 					}
 				}
 				b_mat_defined[i] = true;
@@ -442,10 +698,14 @@ int jsondump::dump_line()
 	index = 0;
 	if(tplines != NULL){
 		pTpLine = (line **)gl_malloc(tplines->hit_count*sizeof(line*));
-		if(pTpLine == NULL){
-			gl_error("Failed to allocate line array.");
-			return TS_NEVER;
+
+		//Check it
+		if (pTpLine == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
 		}
+
 		while(obj = gl_find_next(tplines,obj)){
 			if(index >= tplines->hit_count){
 				break;
@@ -457,12 +717,36 @@ int jsondump::dump_line()
 			}
 
 			//write the overhead_line
-			// Write the name (not id)
-			line_object["id"] = obj->name;
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				line_object["id"] = "Unnamed";
+			}
+
 			//write from node name
-			line_object["node1_id"] = pTpLine[index]->from->name;
+			if (pTpLine[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pTpLine[index]->from->name;
+			}
+			else
+			{
+				line_object["node1_id"] = "Unnamed";
+			}
+
 			//write to node name
-			line_object["node2_id"] = pTpLine[index]->to->name;
+			if (pTpLine[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pTpLine[index]->to->name;
+			}
+			else
+			{
+				line_object["node2_id"] = "Unnamed";
+			}
+
 			//write line phases as boolean values
 			sprintf(buffer, "[%s, %s, %s]", (pTpLine[index]->has_phase(PHASE_A)? "true":"false"),(pTpLine[index]->has_phase(PHASE_B)? "true":"false"), (pTpLine[index]->has_phase(PHASE_C)? "true":"false"));
 			line_object["has_phase"] = buffer;
@@ -490,6 +774,36 @@ int jsondump::dump_line()
 			//write is_transformer (now only write line object, so will only be false)
 			line_object["is_transformer"] = "false";
 
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				pBase_Quantity = new gld_property(pTpLine[index]->to,"nominal_voltage");
+
+				//Make sure it worked
+				if (pBase_Quantity->is_valid() != true)
+				{
+					GL_THROW("jsdondump:%d %s - Unable to map triplex line per-unit base property",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+					/*  TROUBLESHOOT
+					While attempting to map the base quantity for a triplex line per-unit calculation, an error occurred.  Please try again.
+					If the error persists, please submit your system and a bug report via the ticketing system.
+					*/
+				}
+
+				//Pull the voltage base value
+				per_unit_base = pBase_Quantity->get_double();
+
+				//Now get ride of the item
+				delete pBase_Quantity;
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+			
 			//write line configuration, here also start to store per unit configuration data
 			triplex_line_configuration *config = OBJECTDATA(pTpLine[index]->configuration, triplex_line_configuration);
 			int i = 0;
@@ -499,7 +813,7 @@ int jsondump::dump_line()
 			if ((i < tpLineConfs->hit_count) && (b_mat_tp_defined[i] != true)) {
 				for (int m = 0; m < 3; m++) {
 					for (int n = 0; n < 3; n++) {
-						b_mat_tp_pu[i][m][n] = (pTpLine[index]->b_mat[m][n])/((pTpLine[index]->length)/5280.0);
+						b_mat_tp_pu[i*9+m*3+n] = (pTpLine[index]->b_mat[m][n])/(((pTpLine[index]->length)/5280.0)/temp_impedance_base);
 					}
 				}
 				b_mat_tp_defined[i] = true;
@@ -533,6 +847,7 @@ int jsondump::dump_line()
 		}
 	}
 
+
 	// Write line metrics into metrics_lines dictionary
 	metrics_lines["properties"]["lines"] = jsonArray;
 
@@ -563,10 +878,16 @@ int jsondump::dump_line()
 			}
 			line_configuration_object["num_phases"] = phaseCount;
 
-			//write rmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_pu[index][m][n].Re());
+			//Clear the arrays, just to be safe
+			jsonArray1.clear();
+			jsonArray2.clear();
+
+			// write rmatrix
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(b_mat_pu[index*9+indexA*3+indexB].Re());
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -575,9 +896,11 @@ int jsondump::dump_line()
 			jsonArray2.clear();
 
 			//write xmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_pu[index][m][n].Im());
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(b_mat_pu[index*9+indexA*3+indexB].Im());
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -595,7 +918,6 @@ int jsondump::dump_line()
 			index++;
 		}
 	}
-
 
 	//write the triplex line configurations
 	index = 0;
@@ -620,10 +942,16 @@ int jsondump::dump_line()
 			}
 			line_configuration_object["num_phases"] = phaseCount;
 
+			//Clear the arrays, just to be safe
+			jsonArray1.clear();
+			jsonArray2.clear();
+
 			// write rmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_tp_pu[index][m][n].Re());
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(b_mat_tp_pu[index*9+indexA*3+indexB].Re());
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -632,9 +960,11 @@ int jsondump::dump_line()
 			jsonArray2.clear();
 
 			//write xmatrix
-			for (int m = 0; m < 3; m++) {
-				for (int n = 0; n < 3; n++) {
-					jsonArray1.append(b_mat_tp_pu[index][m][n].Im());
+			for (indexA = 0; indexA < 3; indexA++)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					jsonArray1.append(b_mat_tp_pu[index*9+indexA*3+indexB].Im());
 				}
 				jsonArray2.append(jsonArray1);
 				jsonArray1.clear();
@@ -663,6 +993,19 @@ int jsondump::dump_line()
 	out_file.open (filename_dump_line);
 	out_file << writer.write(metrics_lines) << endl;
 	out_file.close();
+
+	//Clean up the mallocs
+	gl_free(ohlines);
+	gl_free(tplines);
+	gl_free(uglines);
+	gl_free(lineConfs);
+	gl_free(tpLineConfs);
+	gl_free(tpTransformers);
+
+	gl_free(b_mat_pu);
+	gl_free(b_mat_defined);
+	gl_free(b_mat_tp_pu);
+	gl_free(b_mat_tp_defined);
 
 	return 1;
 

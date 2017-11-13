@@ -27,6 +27,8 @@ public:
 	char256 filename_dump_reliability;
 	bool write_line;
 	bool write_reliability;
+	bool write_per_unit;
+	double system_VA_base;
 	power_metrics **pPowerMetrics;
 	link_object **pFuse;
 	line **pOhLine;
@@ -41,7 +43,7 @@ public:
 	line_configuration **pLineConf;
 	triplex_line_configuration **pTpLineConf;
 	capacitor **pCapacitor;
-	transformer **pTranformer;
+	transformer **pTransformer;
 	TIMESTAMP runtime;
 	int32 runcount;
 	complex *node_voltage;

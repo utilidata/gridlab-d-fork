@@ -1705,7 +1705,7 @@ void link_object::NR_link_presync_fxn(void)
 				complex tempImped;
 
 				//Pre-admittancized matrix
-				equalm(b_mat,Yto);
+				equalm(base_admittance_mat,Yto);
 
 				//Store value into YSto
 				for (jindex=0; jindex<3; jindex++)
@@ -1738,66 +1738,66 @@ void link_object::NR_link_presync_fxn(void)
 			else if (SpecialLnk==SPLITPHASE)	//Split phase
 			{
 				//Yto - same for all
-				YSto[0] = b_mat[0][0];
-				YSto[1] = b_mat[0][1];
-				YSto[3] = b_mat[1][0];
-				YSto[4] = b_mat[1][1];
+				YSto[0] = base_admittance_mat[0][0];
+				YSto[1] = base_admittance_mat[0][1];
+				YSto[3] = base_admittance_mat[1][0];
+				YSto[4] = base_admittance_mat[1][1];
 				YSto[2] = YSto[5] = YSto[6] = YSto[7] = YSto[8] = 0.0;
 
 				if (has_phase(PHASE_A))		//A connected
 				{
 					//To_Y
-					To_Y[0][0] = -b_mat[0][2];
-					To_Y[1][0] = -b_mat[1][2];
+					To_Y[0][0] = -base_admittance_mat[0][2];
+					To_Y[1][0] = -base_admittance_mat[1][2];
 					To_Y[0][1] = To_Y[0][2] = To_Y[1][1] = 0.0;
 					To_Y[1][2] = To_Y[2][0] = To_Y[2][1] = To_Y[2][2] = 0.0;
 
 					//Yfrom
-					YSfrom[0] = b_mat[2][2];
+					YSfrom[0] = base_admittance_mat[2][2];
 					YSfrom[1] = YSfrom[2] = YSfrom[3] = YSfrom[4] = 0.0;
 					YSfrom[5] = YSfrom[6] = YSfrom[7] = YSfrom[8] = 0.0;
 
 					//From_Y
-					From_Y[0][0] = -b_mat[2][0];
-					From_Y[0][1] = -b_mat[2][1];
+					From_Y[0][0] = -base_admittance_mat[2][0];
+					From_Y[0][1] = -base_admittance_mat[2][1];
 					From_Y[0][2] = From_Y[1][0] = From_Y[1][1] = 0.0;
 					From_Y[1][2] = From_Y[2][0] = From_Y[2][1] = From_Y[2][2] = 0.0;
 				}
 				else if (has_phase(PHASE_B))	//B connected
 				{
 					//To_Y
-					To_Y[0][1] = -b_mat[0][2];
-					To_Y[1][1] = -b_mat[1][2];
+					To_Y[0][1] = -base_admittance_mat[0][2];
+					To_Y[1][1] = -base_admittance_mat[1][2];
 					To_Y[0][0] = To_Y[0][2] = To_Y[1][0] = 0.0;
 					To_Y[1][2] = To_Y[2][0] = To_Y[2][1] = To_Y[2][2] = 0.0;
 
 					//Yfrom
-					YSfrom[4] = b_mat[2][2];
+					YSfrom[4] = base_admittance_mat[2][2];
 					YSfrom[0] = YSfrom[1] = YSfrom[2] = YSfrom[3] = 0.0;
 					YSfrom[5] = YSfrom[6] = YSfrom[7] = YSfrom[8] = 0.0;
 
 					//From_Y
-					From_Y[1][0] = -b_mat[2][0];
-					From_Y[1][1] = -b_mat[2][1];
+					From_Y[1][0] = -base_admittance_mat[2][0];
+					From_Y[1][1] = -base_admittance_mat[2][1];
 					From_Y[0][0] = From_Y[0][1] = From_Y[0][2] = 0.0;
 					From_Y[1][2] = From_Y[2][0] = From_Y[2][1] = From_Y[2][2] = 0.0;
 				}
 				else if (has_phase(PHASE_C))	//C connected
 				{
 					//To_Y
-					To_Y[0][2] = -b_mat[0][2];
-					To_Y[1][2] = -b_mat[1][2];
+					To_Y[0][2] = -base_admittance_mat[0][2];
+					To_Y[1][2] = -base_admittance_mat[1][2];
 					To_Y[0][0] = To_Y[0][1] = To_Y[1][0] = 0.0;
 					To_Y[1][1] = To_Y[2][0] = To_Y[2][1] = To_Y[2][2] = 0.0;
 
 					//Yfrom
-					YSfrom[8] = b_mat[2][2];
+					YSfrom[8] = base_admittance_mat[2][2];
 					YSfrom[0] = YSfrom[1] = YSfrom[2] = YSfrom[3] = 0.0;
 					YSfrom[4] = YSfrom[5] = YSfrom[6] = YSfrom[7] = 0.0;
 
 					//From_Y
-					From_Y[2][0] = -b_mat[2][0];
-					From_Y[2][1] = -b_mat[2][1];
+					From_Y[2][0] = -base_admittance_mat[2][0];
+					From_Y[2][1] = -base_admittance_mat[2][1];
 					From_Y[0][0] = From_Y[0][1] = From_Y[0][2] = 0.0;
 					From_Y[1][0] = From_Y[1][1] = From_Y[1][2] = From_Y[2][2] = 0.0;
 				}
@@ -1852,7 +1852,7 @@ void link_object::NR_link_presync_fxn(void)
 				else	//No in-rush or not WYE-WYE, just go like normal
 				{
 					//Pre-admittancized matrix
-					equalm(b_mat,Yto);
+					equalm(base_admittance_mat,Yto);
 
 					//Store value into YSto
 					for (jindex=0; jindex<3; jindex++)
@@ -3751,19 +3751,19 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 							   A_mat[2][2]*tnode->voltage[2];
 
 					//Put across admittance
-					itemp[0] = b_mat[0][0]*vtemp[0]+
-							   b_mat[0][1]*vtemp[1]+
-							   b_mat[0][2]*vtemp[2];
+					itemp[0] = base_admittance_mat[0][0]*vtemp[0]+
+							   base_admittance_mat[0][1]*vtemp[1]+
+							   base_admittance_mat[0][2]*vtemp[2];
 
-					itemp[1] = b_mat[1][0]*vtemp[0]+
-							   b_mat[1][1]*vtemp[1]+
-							   b_mat[1][2]*vtemp[2];
+					itemp[1] = base_admittance_mat[1][0]*vtemp[0]+
+							   base_admittance_mat[1][1]*vtemp[1]+
+							   base_admittance_mat[1][2]*vtemp[2];
 
-					itemp[2] = b_mat[2][0]*vtemp[0]+
-							   b_mat[2][1]*vtemp[1]+
-							   b_mat[2][2]*vtemp[2];
+					itemp[2] = base_admittance_mat[2][0]*vtemp[0]+
+							   base_admittance_mat[2][1]*vtemp[1]+
+							   base_admittance_mat[2][2]*vtemp[2];
 
-					//Scale the "b_mat" value by the inverse (make it high-side impedance)
+					//Scale the "base_admittance_mat" value by the inverse (make it high-side impedance)
 					//Post values based on phases (reliability related)
 					if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 						current_pointer_in[0] = itemp[0]*invsquared;
@@ -4013,9 +4013,9 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 				//Get low side current (current out) - for now, oh grand creator (me) mandates D-GWye are three phase or nothing
 				if ((NR_branchdata[NR_branch_reference].phases & 0x07) == 0x07)	//ABC
 				{
-					current_pointer_out[0] = vtemp[0] * b_mat[0][0];
-					current_pointer_out[1] = vtemp[1] * b_mat[1][1];
-					current_pointer_out[2] = vtemp[2] * b_mat[2][2];
+					current_pointer_out[0] = vtemp[0] * base_admittance_mat[0][0];
+					current_pointer_out[1] = vtemp[1] * base_admittance_mat[1][1];
+					current_pointer_out[2] = vtemp[2] * base_admittance_mat[2][2];
 
 					//Translate back to high-side
 					current_pointer_in[0] = d_mat[0][0]*current_pointer_out[0]+
@@ -4092,9 +4092,9 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 				if ((NR_branchdata[NR_branch_reference].phases & 0x04) == 0x04)	//A
 				{
 					current_pointer_in[0] = itemp[0] =
-											fnode->voltage[0]*b_mat[2][2]+
-											tnode->voltage[0]*b_mat[2][0]+
-											tnode->voltage[1]*b_mat[2][1];
+											fnode->voltage[0]*base_admittance_mat[2][2]+
+											tnode->voltage[0]*base_admittance_mat[2][0]+
+											tnode->voltage[1]*base_admittance_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -4139,20 +4139,20 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 					}
 
 					//calculate current out
-					current_pointer_out[0] = fnode->voltage[0]*b_mat[0][2]+
-											 tnode->voltage[0]*b_mat[0][0]+
-											 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[0]*base_admittance_mat[0][2]+
+											 tnode->voltage[0]*base_admittance_mat[0][0]+
+											 tnode->voltage[1]*base_admittance_mat[0][1];
 
-					current_pointer_out[1] = fnode->voltage[0]*b_mat[1][2]+
-											 tnode->voltage[0]*b_mat[1][0]+
-											 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[0]*base_admittance_mat[1][2]+
+											 tnode->voltage[0]*base_admittance_mat[1][0]+
+											 tnode->voltage[1]*base_admittance_mat[1][1];
 				}
 				else if ((NR_branchdata[NR_branch_reference].phases & 0x02) == 0x02)	//B
 				{
 					current_pointer_in[1] = itemp[0] =
-											fnode->voltage[1]*b_mat[2][2] +
-											tnode->voltage[0]*b_mat[2][0] +
-											tnode->voltage[1]*b_mat[2][1];
+											fnode->voltage[1]*base_admittance_mat[2][2] +
+											tnode->voltage[0]*base_admittance_mat[2][0] +
+											tnode->voltage[1]*base_admittance_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -4197,21 +4197,21 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 					}
 
 					//calculate current out
-					current_pointer_out[0] = fnode->voltage[1]*b_mat[0][2] +
-									 	 	 tnode->voltage[0]*b_mat[0][0] +
-											 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[1]*base_admittance_mat[0][2] +
+									 	 	 tnode->voltage[0]*base_admittance_mat[0][0] +
+											 tnode->voltage[1]*base_admittance_mat[0][1];
 
-					current_pointer_out[1] = fnode->voltage[1]*b_mat[1][2] +
-									 	 	 tnode->voltage[0]*b_mat[1][0] +
-											 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[1]*base_admittance_mat[1][2] +
+									 	 	 tnode->voltage[0]*base_admittance_mat[1][0] +
+											 tnode->voltage[1]*base_admittance_mat[1][1];
 
 				}
 				else if ((NR_branchdata[NR_branch_reference].phases & 0x01) == 0x01)	//C
 				{
 					current_pointer_in[2] = itemp[0] =
-											fnode->voltage[2]*b_mat[2][2] +
-											tnode->voltage[0]*b_mat[2][0] +
-											tnode->voltage[1]*b_mat[2][1];
+											fnode->voltage[2]*base_admittance_mat[2][2] +
+											tnode->voltage[0]*base_admittance_mat[2][0] +
+											tnode->voltage[1]*base_admittance_mat[2][1];
 
 					//See if our nature requires a lock
 					if (flock)
@@ -4256,13 +4256,13 @@ int link_object::CurrentCalculation(int nodecall, bool link_fault_mode)
 					}
 
 					//calculate current out
-					current_pointer_out[0] = fnode->voltage[2]*b_mat[0][2]+
-									 	 	 tnode->voltage[0]*b_mat[0][0]+
-											 tnode->voltage[1]*b_mat[0][1];
+					current_pointer_out[0] = fnode->voltage[2]*base_admittance_mat[0][2]+
+									 	 	 tnode->voltage[0]*base_admittance_mat[0][0]+
+											 tnode->voltage[1]*base_admittance_mat[0][1];
 
-					current_pointer_out[1] = fnode->voltage[2]*b_mat[1][2]+
-									 	 	 tnode->voltage[0]*b_mat[1][0]+
-											 tnode->voltage[1]*b_mat[1][1];
+					current_pointer_out[1] = fnode->voltage[2]*base_admittance_mat[1][2]+
+									 	 	 tnode->voltage[0]*base_admittance_mat[1][0]+
+											 tnode->voltage[1]*base_admittance_mat[1][1];
 				}
 				else	//No phases valid
 				{
