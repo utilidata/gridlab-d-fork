@@ -47,6 +47,7 @@ diesel_dg::diesel_dg(MODULE *module)
 			PT_enumeration,"Gen_type",PADDR(Gen_type),
 				PT_KEYWORD,"INDUCTION",(enumeration)INDUCTION,
 				PT_KEYWORD,"SYNCHRONOUS",(enumeration)SYNCHRONOUS,
+				PT_KEYWORD,"NON_DYN_CONSTANT",(enumeration)NON_DYN_CONSTANT_PQ,PT_DESCRIPTION,"Non-dynamic mode of diesel generator with constant PQ output as defined",
 				PT_KEYWORD,"DYN_SYNCHRONOUS",(enumeration)DYNAMIC,PT_DESCRIPTION,"Dynamics-capable implementation of synchronous diesel generator",
 		
 			PT_double, "pf", PADDR(pf),PT_DESCRIPTION,"desired power factor",
@@ -848,7 +849,7 @@ int diesel_dg::init(OBJECT *parent)
 	}
 
 	//Old checks - only if not in dynamics mode (that's handled below)
-	if (Gen_type!=DYNAMIC)
+	if (Gen_type!=DYNAMIC && Gen_type != NON_DYN_CONSTANT_PQ)
 	{
 		if (Gen_mode==UNKNOWN)
 		{
@@ -923,6 +924,155 @@ int diesel_dg::init(OBJECT *parent)
 			invAMx[0][1] = AMx[0][2] = AMx[1][0] = AMx[1][2] = AMx[2][0] = AMx[2][1] = tst4;
 		}
 	}//End not dynamic init checks
+	else if (Gen_type == NON_DYN_CONSTANT_PQ)
+	{
+		if (parent == NULL) {
+			gl_error("diesel_dg:%d %s", obj->id, parent==NULL?"has no parent meter defined":"parent is not a meter");
+		}
+
+		// Map the diesel_dg parent node power output pointers
+		pPower_A = new gld_property(parent, "power_A");
+		if ( !pPower_A->is_valid() )
+		{
+			gl_error("power_A property '%s' is not found in object '%s'", (const char*)pPower_A, get_object(parent)->get_name());
+			return 0;
+		}
+
+		pPower_B = new gld_property(parent, "power_B");
+		if ( !pPower_B->is_valid() )
+		{
+			gl_error("pPower_B property '%s' is not found in object '%s'", (const char*)pPower_B, get_object(parent)->get_name());
+			return 0;
+		}
+
+		pPower_C = new gld_property(parent, "power_C");
+		if ( !pPower_C->is_valid() )
+		{
+			gl_error("pPower_C property '%s' is not found in object '%s'", (const char*)pPower_C, get_object(parent)->get_name());
+			return 0;
+		}
+
+		// Check rated power
+		if (Rated_VA <= 0.0)
+		{
+			Rated_VA = 0.5e6;	//Set to parameter-basis default
+
+			gl_warning("diesel_dg:%s did not have a valid Rated_VA set, assuming 5000 kVA",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The Rated_VA value was not set or was set to a negative number.  It is being forced to 5000 kVA, which is
+			the machine base for all of the other default parameter values.
+			*/
+		}
+
+		// Check voltage value
+		if (Rated_V <= 0.0)
+		{
+			Rated_V = 15000.0;	//Set to parameter-basis default
+
+			gl_warning("diesel_dg:%s did not have a valid Rated_V set, assuming 15 kV",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The Rated_V property was not set or was invalid.  It is being forced to 15 kV, which aligns with the base for
+			all default parameters.  This will be checked again later to see if it matches the connecting point.  If this
+			value is not desired, please set it manually.
+			*/
+		}
+
+		// Check given power output in glm file
+		power_base = Rated_VA/3.0;
+
+		//Check specified power against per-phase limit (power_base) - impose that for now
+		if (power_val[0].Mag()>power_base)
+		{
+			gl_warning("diesel_dg:%s - power_out_A is above 1/3 the total rating, capping",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_A value that is above 1/3 the total rating.  It will be thresholded to
+			that level.
+			*/
+
+			//Maintain power factor value
+			test_pf = power_val[0].Re()/power_val[0].Mag();
+
+			//Form up
+			if (power_val[0].Im()<0.0)
+				power_val[0] = complex((power_base*test_pf),(-1.0*sqrt(1-test_pf*test_pf)*power_base));
+			else
+				power_val[0] = complex((power_base*test_pf),(sqrt(1-test_pf*test_pf)*power_base));
+		}//End phase A power limit check
+
+		if (power_val[1].Mag()>power_base)
+		{
+			gl_warning("diesel_dg:%s - power_out_B is above 1/3 the total rating, capping",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_B value that is above 1/3 the total rating.  It will be thresholded to
+			that level.
+			*/
+
+			//Maintain power factor value
+			test_pf = power_val[1].Re()/power_val[1].Mag();
+
+			//Form up
+			if (power_val[1].Im()<0.0)
+				power_val[1] = complex((power_base*test_pf),(-1.0*sqrt(1-test_pf*test_pf)*power_base));
+			else
+				power_val[1] = complex((power_base*test_pf),(sqrt(1-test_pf*test_pf)*power_base));
+		}//End phase B power limit check
+
+		if (power_val[2].Mag()>power_base)
+		{
+			gl_warning("diesel_dg:%s - power_out_C is above 1/3 the total rating, capping",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_C value that is above 1/3 the total rating.  It will be thresholded to
+			that level.
+			*/
+
+			//Maintain power factor value
+			test_pf = power_val[2].Re()/power_val[2].Mag();
+
+			//Form up
+			if (power_val[2].Im()<0.0)
+				power_val[2] = complex((power_base*test_pf),(-1.0*sqrt(1-test_pf*test_pf)*power_base));
+			else
+				power_val[2] = complex((power_base*test_pf),(sqrt(1-test_pf*test_pf)*power_base));
+		}//End phase C power limit check
+
+		//Check for zeros - if any are zero, 50% them (real generator, arbitrary)
+		if (power_val[0].Mag() == 0.0)
+		{
+			gl_warning("diesel_dg:%s - power_out_A is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_A value that is zero.  This can cause the generator to never
+			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
+			undesired, please change the value.
+			*/
+
+			power_val[0] = complex(0.5*power_base,0.0);
+		}
+
+		if (power_val[1].Mag() == 0.0)
+		{
+			gl_warning("diesel_dg:%s - power_out_B is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_B value that is zero.  This can cause the generator to never
+			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
+			undesired, please change the value.
+			*/
+
+			power_val[1] = complex(0.5*power_base,0.0);
+		}
+
+		if (power_val[2].Mag() == 0.0)
+		{
+			gl_warning("diesel_dg:%s - power_out_C is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
+			/*  TROUBLESHOOT
+			The diesel_dg object has a power_out_C value that is zero.  This can cause the generator to never
+			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
+			undesired, please change the value.
+			*/
+
+			power_val[2] = complex(0.5*power_base,0.0);
+		}
+
+	}
 	else	//Must be dynamic!
 	{
 		//Make sure our parent is delta enabled!
@@ -1527,7 +1677,15 @@ TIMESTAMP diesel_dg::sync(TIMESTAMP t0, TIMESTAMP t1)
 	}//End first timestep
 
 	//Existing code retained - kept as "not dynamic"
-	if (Gen_type != DYNAMIC)
+	if (Gen_type == NON_DYN_CONSTANT_PQ) {
+
+		// Assign the power output from diesel_dg to its parent node
+		pPower_A->setp(power_val[0]);
+		pPower_B->setp(power_val[1]);
+		pPower_C->setp(power_val[2]);
+
+	}
+	else if (Gen_type != DYNAMIC)
 	{
 		indicated_hp = (100000/60)*(pressure*cylinder_length*(3.1416/4)*cylinder_radius*cylinder_radius*speed*cylinders);
 		

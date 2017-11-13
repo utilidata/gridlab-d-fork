@@ -195,7 +195,7 @@ public:
 	/* TODO: put published variables here */
 	enum {OFFLINE=1, ONLINE};
 	enumeration Gen_status;
-	enum {INDUCTION=1, SYNCHRONOUS, DYNAMIC};
+	enum {INDUCTION=1, SYNCHRONOUS, DYNAMIC, NON_DYN_CONSTANT_PQ};
 	enumeration Gen_type;
 	enum {CONSTANTE=1, CONSTANTP, CONSTANTPQ};
 	enumeration Gen_mode;
@@ -253,6 +253,14 @@ public:
 
 	//end of diesel engine inputs
 	
+	//diesel NON_DYN_CONSTANT_PQ type parameters
+
+	gld_property *pPower_A;	// pointer to power_out_A on the diesel_dg parent node
+	gld_property *pPower_B;	// pointer to power_out_B on the diesel_dg parent node
+	gld_property *pPower_C;	// pointer to power_out_C on the diesel_dg parent node
+
+	//end of diesel NON_DYN_CONSTANT_PQ type parameters
+
 	//Synchronous gen inputs
 	
 	double Pconv;//Converted power = Mechanical input - (F & W loasses + Stray losses + Core losses)
