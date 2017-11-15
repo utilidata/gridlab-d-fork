@@ -434,6 +434,14 @@ void meter::BOTH_meter_sync_fxn()
 			meter_interrupted = false;	//All is well
 		}
 	}
+	
+	if (meter_interrupted != true) // check if already off due to an upstream switch opening. if yes, don't worry about this
+	{
+		if (service_status == ND_OUT_OF_SERVICE)
+			meter_interrupted = true;
+		else
+			meter_interrupted = false;
+	}
 
 	if (meter_power_consumption != complex(0,0))
 	{
@@ -479,13 +487,6 @@ TIMESTAMP meter::postsync(TIMESTAMP t0, TIMESTAMP t1)
 	measured_voltageD_mag[1] = measured_voltageD[1].Mag();
 	measured_voltageD_mag[2] = measured_voltageD[2].Mag();
  
-	if (meter_interrupted != true) // check if already off due to reliability. if yes, don't worry about this
-	{
-		if (service_status == ND_OUT_OF_SERVICE)
-			meter_interrupted = true;
-		else
-			meter_interrupted = false;
-	}
 
 	//%check whether voltages are within limit specified by the operator
 	if(voltage_check == true  && meter_interrupted == false)
