@@ -1680,9 +1680,13 @@ TIMESTAMP diesel_dg::sync(TIMESTAMP t0, TIMESTAMP t1)
 	if (Gen_type == NON_DYN_CONSTANT_PQ) {
 
 		// Assign the power output from diesel_dg to its parent node
-		pPower_A->setp(power_val[0]);
-		pPower_B->setp(power_val[1]);
-		pPower_C->setp(power_val[2]);
+		complex temp_power_val;
+		temp_power_val = complex(-power_val[0].Re(), -power_val[0].Im());
+		pPower_A->setp(temp_power_val);
+		temp_power_val = complex(-power_val[1].Re(), -power_val[1].Im());
+		pPower_B->setp(temp_power_val);
+		temp_power_val = complex(-power_val[2].Re(), -power_val[2].Im());
+		pPower_C->setp(temp_power_val);
 
 	}
 	else if (Gen_type != DYNAMIC)
