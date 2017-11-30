@@ -35,7 +35,7 @@ public:
 	TIMESTAMP sync(TIMESTAMP t1);
 	TIMESTAMP postsync(TIMESTAMP t1);
 	int isa(char *classname);
-	int finalize();
+	STATUS finalize();
 	void pw_close_COM(void);
 public:
 	GL_STRING(char1024, model_name);

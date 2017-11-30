@@ -24,23 +24,23 @@ EXPORT_SYNC(pw_model);
 EXPORT_ISA(pw_model);
 //EXPORT_FINALIZE(pw_model);
 
-EXPORT int finalize_pw_model(OBJECT *obj) 
+EXPORT STATUS finalize_pw_model(OBJECT *obj) 
 {	pw_model *my = OBJECTDATA(obj,pw_model);
 	try {
-		return obj!=NULL ? my->finalize() : 0;
+		return obj!=NULL ? my->finalize() : FAILED;
 	} 
 	//T_CATCHALL(pw_model,finalize); 
 	catch (char *msg) {
 		gl_error("finalize_pw_model" "(obj=%d;%s): %s", obj->id, obj->name?obj->name:"unnamed", msg);
-		return TS_INVALID; 
+		return FAILED; 
 	}
 	catch (const char *msg) { 
 		gl_error("finalize_pw_model" "(obj=%d;%s): %s", obj->id, obj->name?obj->name:"unnamed", msg);
-		return TS_INVALID;
+		return FAILED;
 	}
 	catch (...) {
 		gl_error("finalize_pw_model" "(obj=%d;%s): unhandled exception", obj->id, obj->name?obj->name:"unnamed");
-		return TS_INVALID;
+		return FAILED;
 	}
 }
 
@@ -415,7 +415,7 @@ int pw_model::isa(char *classname){
 	Closes the PowerWorld model, as GridLAB-D is shutting down.
 	@return 1
  **/
-int pw_model::finalize(){
+STATUS pw_model::finalize(){
 	_variant_t output;
 
 	output = A->CloseCase();
@@ -425,12 +425,12 @@ int pw_model::finalize(){
 		PowerWorld encountered an error while trying to close the open case.  Please check
 		to ensure your model is correct.
 		*/
-		return 0;
+		return FAILED;
 	}
 
 	gl_verbose("pw_model::finalize(): case closed.");
 
-	return 1;
+	return SUCCESS;
 }
 
 //Functionalized version of COM shutdown items
