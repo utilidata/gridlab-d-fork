@@ -136,7 +136,7 @@ triplex_meter::triplex_meter(MODULE *mod) : triplex_node(mod)
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 
 			// publish interruption identification function
-			if (gl_publish_function(oclass,	"identify_interrupts", (FUNCTIONADDR)identify_interruptions)==NULL)
+			if (gl_publish_function(oclass,	"identify_interrupts", (FUNCTIONADDR)identify_interruptions_triplex_meter)==NULL)
 				GL_THROW("Unable to publish identify interrupts function");
 
 			//Deltamode functions
@@ -869,7 +869,7 @@ EXPORT SIMULATIONMODE interupdate_triplex_meter(OBJECT *obj, unsigned int64 delt
 	}
 }
 
-EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
+EXPORT int identify_interruptions_triplex_meter(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
 {
 	int totalTime = 0;
 	triplex_meter *my = OBJECTDATA(obj,triplex_meter);

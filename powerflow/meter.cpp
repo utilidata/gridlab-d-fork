@@ -150,7 +150,7 @@ meter::meter(MODULE *mod) : node(mod)
 			NULL)<1) GL_THROW("unable to publish properties in %s",__FILE__);
 
 		// publish interruption identification function
-		if (gl_publish_function(oclass,	"identify_interrupts", (FUNCTIONADDR)identify_interruptions)==NULL)
+		if (gl_publish_function(oclass,	"identify_interrupts", (FUNCTIONADDR)identify_interruptions_meter)==NULL)
 			GL_THROW("Unable to publish identify interrupts function");
 
 		// publish meter reset function
@@ -1073,7 +1073,7 @@ EXPORT SIMULATIONMODE interupdate_meter(OBJECT *obj, unsigned int64 delta_time, 
 	}
 }
 
-EXPORT int identify_interruptions(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
+EXPORT int identify_interruptions_meter(OBJECT *obj, TIMESTAMP event_start_time, TIMESTAMP event_end_time, bool* interrupted, bool* momentaryFault)
 {
 	int totalTime = 0;
 	meter *my = OBJECTDATA(obj,meter);
