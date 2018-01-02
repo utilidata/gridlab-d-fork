@@ -559,31 +559,31 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -630,7 +630,7 @@ STATUS jsondump::dump_system(void)
 			node_object["microgrid_cost"] = 1.0e30;
       		node_object["microgrid_fixed_cost"] = 0.0;
       		node_object["max_microgrid"] = 0.0;
-      		node_object["is_new"] = "false";
+      		node_object["is_new"] = false;
 
 			//Add the object to the array
 			jsonArray.append(node_object);
@@ -686,31 +686,31 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -757,7 +757,7 @@ STATUS jsondump::dump_system(void)
 			node_object["microgrid_cost"] = 1.0e30;
       		node_object["microgrid_fixed_cost"] = 0.0;
       		node_object["max_microgrid"] = 0.0;
-      		node_object["is_new"] = "false";
+      		node_object["is_new"] = false;
 
 			//Add the object to the array
 			jsonArray.append(node_object);
@@ -845,31 +845,31 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -956,31 +956,31 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1054,11 +1054,11 @@ STATUS jsondump::dump_system(void)
 			//See if we're "appropriately critical"
 			if (temp_enum_value == 2)
 			{
-				load_object["is_critical"] = "true";
+				load_object["is_critical"] = true;
 			}
 			else
 			{
-				load_object["is_critical"] = "false";
+				load_object["is_critical"] = false;
 			}
 
 			//Write min and max voltage values
@@ -1096,31 +1096,31 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1279,34 +1279,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1323,7 +1323,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer
-			line_object["is_transformer"] = "true";
+			line_object["is_transformer"] = true;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -1386,13 +1386,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "false";
+			line_object["has_switch"] = false;
 			// End of line codes
 
 			// Append to line array
@@ -1488,34 +1488,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1532,7 +1532,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer
-			line_object["is_transformer"] = "true";
+			line_object["is_transformer"] = true;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -1595,13 +1595,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "false";
+			line_object["has_switch"] = false;
 			// End of line codes
 
 			// Append to line array
@@ -1696,34 +1696,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1740,7 +1740,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer (now only write line object, so will only be false)
-			line_object["is_transformer"] = "false";
+			line_object["is_transformer"] = false;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -1802,13 +1802,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "false";
+			line_object["has_switch"] = false;
 			// End of line codes
 
 			// Append to line array
@@ -1903,34 +1903,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -1947,7 +1947,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer (now only write line object, so will only be false)
-			line_object["is_transformer"] = "false";
+			line_object["is_transformer"] = false;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -2009,13 +2009,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "false";
+			line_object["has_switch"] = false;
 			// End of line codes
 
 			// Append to line array
@@ -2110,34 +2110,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -2154,7 +2154,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer (now only write line object, so will only be false)
-			line_object["is_transformer"] = "false";
+			line_object["is_transformer"] = false;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -2216,13 +2216,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "false";
+			line_object["has_switch"] = false;
 			// End of line codes
 
 			// Append to line array
@@ -2322,34 +2322,34 @@ STATUS jsondump::dump_system(void)
 			//Phase A
 			if ((temp_set_value & PHASE_A) == PHASE_A)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 				
 			//Phase B
 			if ((temp_set_value & PHASE_B) == PHASE_B)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Phase C
 			if ((temp_set_value & PHASE_C) == PHASE_C)
 			{
-				jsonArray2.append("true");
+				jsonArray2.append(true);
 				phaseCount++;
 			}
 			else
 			{
-				jsonArray2.append("false");
+				jsonArray2.append(false);
 			}
 
 			//Append it in
@@ -2366,7 +2366,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer
-			line_object["is_transformer"] = "true";
+			line_object["is_transformer"] = true;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -2406,13 +2406,13 @@ STATUS jsondump::dump_system(void)
 			//write switch cost - only default cost
 			line_object["switch_cost"] = 1e30;
 			//write flag of new construction - only default cost
-			line_object["is_new"] = "false";
+			line_object["is_new"] = false;
 			//write flag of harden - only default cost
-			line_object["can_harden"] = "false";
+			line_object["can_harden"] = false;
 			//write flag of add switch - only default cost
-			line_object["can_add_switch"] = "false";
+			line_object["can_add_switch"] = false;
 			//write flag of switch existence - only default cost
-			line_object["has_switch"] = "true";
+			line_object["has_switch"] = true;
 			// End of line codes
 
 			// Append to line array
@@ -2928,15 +2928,15 @@ STATUS jsondump::dump_reliability(void)
 			// Write device opening status
 			// Append opening status to array
 			if ((fuseData->phases & 0x04) == 0x04) {
-				sprintf(buffer, "%s", ((fuseData->phase_A_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((fuseData->phase_A_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((fuseData->phases & 0x02) == 0x02) {
-				sprintf(buffer, "%s", ((fuseData->phase_B_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((fuseData->phase_B_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((fuseData->phases & 0x01) == 0x01) {
-				sprintf(buffer, "%s", ((fuseData->phase_C_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((fuseData->phase_C_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 
@@ -2974,15 +2974,15 @@ STATUS jsondump::dump_reliability(void)
 			// Write device opening status
 			// Append opening status to array
 			if ((reclData->phases & 0x04) == 0x04) {
-				sprintf(buffer, "%s", ((reclData->phase_A_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((reclData->phase_A_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((reclData->phases & 0x02) == 0x02) {
-				sprintf(buffer, "%s", ((reclData->phase_B_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((reclData->phase_B_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((reclData->phases & 0x01) == 0x01) {
-				sprintf(buffer, "%s", ((reclData->phase_C_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((reclData->phase_C_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 
@@ -3020,15 +3020,15 @@ STATUS jsondump::dump_reliability(void)
 			// Write device opening status
 			// Append opening status to array
 			if ((secData->phases & 0x04) == 0x04) {
-				sprintf(buffer, "%s", ((secData->phase_A_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((secData->phase_A_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((secData->phases & 0x02) == 0x02) {
-				sprintf(buffer, "%s", ((secData->phase_B_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((secData->phase_B_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((secData->phases & 0x01) == 0x01) {
-				sprintf(buffer, "%s", ((secData->phase_C_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((secData->phase_C_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 
@@ -3073,15 +3073,15 @@ STATUS jsondump::dump_reliability(void)
 			// Write device opening status
 			// Append opening status to array
 			if ((capData->pt_phase & 0x04) == 0x04) {
-				sprintf(buffer, "%s", ((capData->switchA_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((capData->switchA_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((capData->pt_phase & 0x02) == 0x02) {
-				sprintf(buffer, "%s", ((capData->switchB_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((capData->switchB_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 			if ((capData->pt_phase & 0x01) == 0x01) {
-				sprintf(buffer, "%s", ((capData->switchC_state == 1)? "true":"false"));
+				sprintf(buffer, "%s", ((capData->switchC_state == 1)? true:false));
 				jsonArray.append(buffer);
 			}
 
