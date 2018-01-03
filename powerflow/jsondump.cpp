@@ -3237,7 +3237,7 @@ double jsondump::get_double_value(OBJECT *obj, char *name)
 	//Pull the voltage base value
 	output_value = pQuantity->get_double();
 
-	//Now get ride of the item
+	//Now get rid of the item
 	delete pQuantity;
 
 	//return it
@@ -3264,7 +3264,7 @@ complex jsondump::get_complex_value(OBJECT *obj, char *name)
 	//Pull the voltage base value
 	output_value = pQuantity->get_complex();
 
-	//Now get ride of the item
+	//Now get rid of the item
 	delete pQuantity;
 
 	//return it
@@ -3291,7 +3291,7 @@ set jsondump::get_set_value(OBJECT *obj, char *name)
 	//Pull the voltage base value
 	output_value = pQuantity->get_set();
 
-	//Now get ride of the item
+	//Now get rid of the item
 	delete pQuantity;
 
 	//return it
@@ -3318,7 +3318,7 @@ enumeration jsondump::get_enum_value(OBJECT *obj, char *name)
 	//Pull the voltage base value
 	output_value = pQuantity->get_enumeration();
 
-	//Now get ride of the item
+	//Now get rid of the item
 	delete pQuantity;
 
 	//return it
@@ -3337,17 +3337,16 @@ OBJECT *jsondump::get_object_value(OBJECT *obj,char *name)
 	pQuantity = new gld_property(obj,name);
 
 	//Make sure it worked
-	if ((pQuantity->is_valid() != true) ) //|| (pQuantity->is_objectref() != true))
+	if ((pQuantity->is_valid() != true) || (pQuantity->is_objectref() != true))
 	{
 		GL_THROW("jsdondump:%d %s - Unable to map property %s from object:%d %s",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"),name,obj->id,(obj->name ? obj->name : "Unnamed"));
 		//Defined above
 	}
 
 	//Pull the voltage base value
-	//output_value = pQuantity->get_objectref();
 	pQuantity->getp<OBJECT*>(output_value,*test_rlock);
 
-	//Now get ride of the item
+	//Now get rid of the item
 	delete pQuantity;
 
 	//return it
