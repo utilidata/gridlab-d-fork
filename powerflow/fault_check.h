@@ -15,8 +15,9 @@ public:
 	//Move typedef in here so reliabilty-related items can access the enumeration
 	typedef enum {
 			SINGLE=0,		//Runs one fault_check, right at the beginning of powerflow
-			ONCHANGE=1,	//Runs fault_check everytime a Jacobian reconfiguration is requested
-			ALLT=2			//Runs fault_check on every iteration
+			ONCHANGE=1,		//Runs fault_check everytime a Jacobian reconfiguration is requested
+			ALLT=2,			//Runs fault_check on every iteration
+			SINGLE_DEBUG=3	//Runs one fault_check, but will terminate the simulation -- bypasses some phase check errors
 			} FCSTATE;
 
 	unsigned int **Supported_Nodes;			//Nodes with source support (connected to swing somehow)
@@ -64,6 +65,7 @@ private:
 	TIMESTAMP prev_time;	//Previous timestamp - mainly for intialization
 	FUNCTIONADDR restoration_fxn;	// Function address for restoration object reconfiguration call
 	int *associated_grid;	//Array for assignment of nodes to different "main connection" points
+	int num_islands_detected;
 };
 
 EXPORT int powerflow_alterations(OBJECT *thisobj, int baselink,bool rest_mode);

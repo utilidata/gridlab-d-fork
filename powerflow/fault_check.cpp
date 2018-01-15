@@ -31,6 +31,7 @@ fault_check::fault_check(MODULE *mod) : powerflow_object(mod)
 				PT_KEYWORD, "SINGLE", (enumeration)SINGLE,
 				PT_KEYWORD, "ONCHANGE", (enumeration)ONCHANGE,
 				PT_KEYWORD, "ALL", (enumeration)ALLT,
+				PT_KEYWORD, "SINGLE_DEBUG", (enumeration)SINGLE_DEBUG,
 			PT_char1024,"output_filename",PADDR(output_filename),PT_DESCRIPTION,"Output filename for list of unsupported nodes",
 			PT_bool,"reliability_mode",PADDR(reliability_mode),PT_DESCRIPTION,"General flag indicating if fault_check is operating under faulting or restoration mode -- reliability set this",
 			PT_bool,"strictly_radial",PADDR(reliability_search_mode),PT_DESCRIPTION,"Flag to indicate if a system is known to be strictly radial -- uses radial assumptions for reliability alterations",
@@ -72,6 +73,8 @@ int fault_check::create(void)
 	associated_grid = NULL;	//Null the array
 
 	grid_association_mode = false;	//By default, we go to normal "Highlander" grid (there can be only one!)
+
+	num_islands_detected = -1;		//Set to some negative number, just to be an invalid result
 
 	return result;
 }
@@ -153,6 +156,13 @@ int fault_check::init(OBJECT *parent)
 		meshed_fault_checking_enabled = true;	//Let other powerflow objects know we're a mesh-based check
 	}
 
+	//See if we're in "special mode" and set the flag
+	if (fcheck_state == SINGLE_DEBUG)
+	{
+		//Set the powerflow global -- all checks will be off of this (so no crazy player manipulations allowed)
+		fault_check_override_mode = true;
+	}
+
 	return powerflow_object::init(parent);
 }
 
@@ -169,7 +179,11 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 		allocate_alterations_values(reliability_mode);
 	}
 
-	if ((fcheck_state == SINGLE) && (prev_time == 0))	//Single only occurs on first iteration
+	if (fault_check_override_mode == true)	//Special mode -- do a single topology check and then fail
+	{
+		perform_check = true;
+	}
+	else if ((fcheck_state == SINGLE) && (prev_time == 0))	//Single only occurs on first iteration
 	{
 		perform_check = true;	//Flag for a check
 	}//end single check
@@ -189,7 +203,7 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 	if (perform_check)	//Each "check" is identical - split out here to avoid 3x replication
 	{
 		//See if restoration is present - if not, proceed without it
-		if (restoration_object != NULL)
+		if ((restoration_object != NULL) && (fault_check_override_mode == false))
 		{
 			//See if we've linked our function yet or not
 			if (restoration_fxn == NULL)
@@ -254,7 +268,7 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 					}
 
 					//See what mode we are in
-					if (reliability_mode == false)
+					if ((reliability_mode == false) && (fault_check_override_mode == false))
 					{
 						GL_THROW("Unsupported phase on node %s",NR_busdata[index].name);
 						/*  TROUBLESHOOT
@@ -305,7 +319,7 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 
 			override_output = output_check_supported_mesh();	//See if anything changed
 
-			//See if anything broke
+			//See if anything broke - or if we want everything
 			if (override_output == true)
 			{
 				if (output_filename[0] != '\0')	//See if there's an output
@@ -314,7 +328,7 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 				}
 
 				//See what mode we are in
-				if (reliability_mode == false)
+				if ((reliability_mode == false) && (fault_check_override_mode == false))
 				{
 					GL_THROW("Unsupported phase on a possibly meshed node");
 					/*  TROUBLESHOOT
@@ -331,13 +345,35 @@ TIMESTAMP fault_check::sync(TIMESTAMP t0)
 					*/
 				}
 			}
+			else if (grid_association_mode == true)	//We do want everything, but nothing failed
+			{
+				if (output_filename[0] != '\0')	//See if there's an output
+				{
+					write_output_file(t0,0);	//Write it
+				}
+			}
+			//Default else -- nothing broke, and we don't want everything
 		}
 	}//End check
 
 	//Update previous timestep info
 	prev_time = t0;
 
-	return tret;	//Return where we want to go.  If >t0, NR will force us back anyways
+	//See if we were super-special mode
+	if (fault_check_override_mode == true)
+	{
+		gl_error("fault_check:%d %s -- Special debug mode utilized, simulation terminating",obj->id,(obj->name ? obj->name : "Unnamed"));
+		/*  TROUBLESHOOT
+		The special "SINGLE_DEBUG" mode has been activated in fault_check.  This performs a topology check ignoring some of the phase checking
+		built into powerflow.  This is meant only for debugging topological issues, so the simulation is terminated prematurely, regardless of if
+		any issues were found or not.
+		*/
+		return TS_INVALID;
+	}
+	else	//Standard mode
+	{
+		return tret;	//Return where we want to go.  If >t0, NR will force us back anyways
+	}
 }
 
 
@@ -657,20 +693,28 @@ void fault_check::write_output_file(TIMESTAMP tval, double tval_delta)
 			//See if the header's been written
 			if (headerwritten == false)
 			{
-				if (deltamodeflag == true)
+				if (fault_check_override_mode == false)
 				{
-					//Convert the current time to an output
-					ret_value = gl_printtimedelta(tval_delta,deltaprint_buffer,64);
+					if (deltamodeflag == true)
+					{
+						//Convert the current time to an output
+						ret_value = gl_printtimedelta(tval_delta,deltaprint_buffer,64);
 
-					//Write it
-					fprintf(FPOutput,"Unsupported at timestamp %0.9f - %s =\n\n",tval_delta,deltaprint_buffer);
+						//Write it
+						fprintf(FPOutput,"Unsupported at timestamp %0.9f - %s =\n\n",tval_delta,deltaprint_buffer);
+					}
+					else	//Event-based mode
+					{
+						//Convert timestamp so readable
+						gl_localtime(tval,&temp_time);
+
+						fprintf(FPOutput,"Unsupported at timestamp %lld - %04d-%02d-%02d %02d:%02d:%02d =\n\n",tval,temp_time.year,temp_time.month,temp_time.day,temp_time.hour,temp_time.minute,temp_time.second);
+					}
 				}
-				else	//Event-based mode
+				else	//Special debug mode
 				{
-					//Convert timestamp so readable
-					gl_localtime(tval,&temp_time);
-
-					fprintf(FPOutput,"Unsupported at timestamp %lld - %04d-%02d-%02d %02d:%02d:%02d =\n\n",tval,temp_time.year,temp_time.month,temp_time.day,temp_time.hour,temp_time.minute,temp_time.second);
+					//Write it
+					fprintf(FPOutput,"Special debug topology check -- phase checks bypassed -- Unsupported nodes list\n\n");
 				}
 
 				headerwritten = true;	//Flag it as written
@@ -726,6 +770,12 @@ void fault_check::write_output_file(TIMESTAMP tval, double tval_delta)
 		}//end unsupported
 	}//end bus traversion
 
+	//See if we made it here without writing a header -- if we're in special mode, indicate as much
+	if ((headerwritten == false) && (fault_check_override_mode == true))
+	{
+		fprintf(FPOutput,"Special debug topology check -- phase checks bypassed -- No unsupported nodes found\n\n");
+	}
+
 	//Check and see if we want supported nodes too
 	if (full_print_output == true)
 	{
@@ -735,32 +785,100 @@ void fault_check::write_output_file(TIMESTAMP tval, double tval_delta)
 
 			if (phase_outs != 0x00)	//Supported
 			{
-				//See if the header's been written
-				if (headerwritten == false)
+				//See which mode we are in
+				if (fault_check_override_mode == false)	//Standard mode
 				{
-					if (deltamodeflag == true)
+					//See if the header's been written
+					if (headerwritten == false)
 					{
-						//Convert the current time to an output
-						ret_value = gl_printtimedelta(tval_delta,deltaprint_buffer,64);
+						if (deltamodeflag == true)
+						{
+							//Convert the current time to an output
+							ret_value = gl_printtimedelta(tval_delta,deltaprint_buffer,64);
 
-						//Write it
-						fprintf(FPOutput,"Supported at timestamp %0.9f - %s =\n\n",tval_delta,deltaprint_buffer);
+							//Write it
+							fprintf(FPOutput,"Supported at timestamp %0.9f - %s =\n",tval_delta,deltaprint_buffer);
+
+							//Check the mode -- see if we need an island summary
+							if (grid_association_mode == false)
+							{
+								fprintf(FPOutput,"\n");	//Extra line break
+							}
+							else //Write an island count
+							{
+								//Write it the island summary
+								fprintf(FPOutput,"Number detected islands = %d\n\n",num_islands_detected);
+							}
+						}
+						else	//Event-based mode
+						{
+							//Convert timestamp so readable
+							gl_localtime(tval,&temp_time);
+
+							fprintf(FPOutput,"Supported at timestamp %lld - %04d-%02d-%02d %02d:%02d:%02d =\n",tval,temp_time.year,temp_time.month,temp_time.day,temp_time.hour,temp_time.minute,temp_time.second);
+
+							if (grid_association_mode == false)
+							{
+								fprintf(FPOutput,"\n");	//Extra line break
+							}
+							else
+							{
+								//Print the island count estimate
+								fprintf(FPOutput,"Number detected islands = %d\n\n",num_islands_detected);
+							}
+						}
+
+						headerwritten = true;	//Flag it as written
+						supportheaderwritten = true;	//Flag intermediate as written too
 					}
-					else	//Event-based mode
+					else if (supportheaderwritten == false)	//Tiemstamp written, but not second header
 					{
-						//Convert timestamp so readable
-						gl_localtime(tval,&temp_time);
+						if (grid_association_mode == false)
+						{
+							fprintf(FPOutput,"\nSupported Nodes\n");
+						}
+						else
+						{
+							fprintf(FPOutput,"\nSupported Nodes -- %d Islands detected = %d\n",num_islands_detected);
+						}
 
-						fprintf(FPOutput,"Supported at timestamp %lld - %04d-%02d-%02d %02d:%02d:%02d =\n\n",tval,temp_time.year,temp_time.month,temp_time.day,temp_time.hour,temp_time.minute,temp_time.second);
+						supportheaderwritten = true;	//Flag intermediate as written too
 					}
-
-					headerwritten = true;	//Flag it as written
-					supportheaderwritten = true;	//Flag intermediate as written too
 				}
-				else if (supportheaderwritten == false)	//Tiemstamp written, but not second header
+				else	//Special debug mode
 				{
-					fprintf(FPOutput,"\nSupported Nodes\n");
-					supportheaderwritten = true;	//Flag intermediate as written too
+					//See if anything is written
+					if (headerwritten == false)
+					{
+						if (grid_association_mode == false)
+						{
+							//Write it
+							fprintf(FPOutput,"Special debug topology check -- phase checks bypassed -- Supported nodes list\n\n");
+						}
+						else
+						{
+							//Write it
+							fprintf(FPOutput,"Special debug topology check -- phase checks bypassed -- Supported nodes list -- %d Islands detected\n\n",num_islands_detected);
+						}
+
+						//Set flags, just in case
+						headerwritten = true;
+						supportheaderwritten = true;
+					}
+					else if (supportheaderwritten == false)
+					{
+						if (grid_association_mode == false)
+						{
+							fprintf(FPOutput,"\nSupported Nodes\n");
+						}
+						else
+						{
+							fprintf(FPOutput,"\nSupported Nodes -- %d Islands detected\n",num_islands_detected);
+						}
+
+						supportheaderwritten = true;	//Flag intermediate as written too
+					}
+					//Default else -- they've both bee written
 				}
 
 				//Figure out the "supported" structure
@@ -1851,6 +1969,9 @@ void fault_check::associate_grids(void)
 	}
 
 	//Another loop for just "NF_ISSOURCE" flags??
+
+	//Set the island count
+	num_islands_detected = grid_counter;
 }
 
 //Multiple grid checking items - the actual crawler

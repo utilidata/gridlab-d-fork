@@ -1409,24 +1409,26 @@ TIMESTAMP node::presync(TIMESTAMP t0)
 			A node has more phases present than it has sources coming in.  Under the Forward-Back sweep algorithm,
 			the system should be strictly radial.  This scenario implies either a meshed system or unconnected
 			phases between the from and to nodes of a connected line.  Please adjust the phases appropriately.  Also
-			be sure no open switches are the sole connection for a phase, else this will fail as well.  In a few NR
-			circumstances, this can also be seen if the "from" and "to" nodes are in reverse order - the "from" node
-			of a link object should be nearest the SWING node, or the node with the most phases - this error check
-			will be updated in future versions.
+			be sure no open switches are the sole connection for a phase, else this will fail as well.
 			*/
 		}
 		if (((phase_to_check & (busphasesIn | busphasesOut) != phase_to_check) && (busphasesIn != 0 && busphasesOut != 0) && (solver_method == SM_NR)))
 		{
-			GL_THROW("node:%d (%s) has more phases leaving than entering",obj->id,obj->name);
+			gl_error("node:%d (%s) has more phases leaving than entering",obj->id,obj->name);
 			/* TROUBLESHOOT
-			A node has more phases present than it has sources coming in.  Under the Forward-Back sweep algorithm,
-			the system should be strictly radial.  This scenario implies either a meshed system or unconnected
+			A node has more phases present than it has sources coming in.  This scenario implies an unconnected
 			phases between the from and to nodes of a connected line.  Please adjust the phases appropriately.  Also
 			be sure no open switches are the sole connection for a phase, else this will fail as well.  In a few NR
 			circumstances, this can also be seen if the "from" and "to" nodes are in reverse order - the "from" node 
 			of a link object should be nearest the SWING node, or the node with the most phases - this error check
 			will be updated in future versions.
 			*/
+
+			//See which mode we're in
+			if (fault_check_override_mode == false)
+			{
+				return TS_INVALID;
+			}
 		}
 
 		//Deltamode check - let every object do it, for giggles
@@ -2564,6 +2566,13 @@ TIMESTAMP node::sync(TIMESTAMP t0)
 				bool bad_computation=false;
 				NRSOLVERMODE powerflow_type;
 				
+				//See if we're the special fault_check mode
+				if (fault_check_override_mode == true)
+				{
+					//Just return a reiteration time -- fault_check will terminate the simulation
+					return t0;
+				}
+
 				//Depending on operation mode, call solver appropriately
 				if (deltamode_inclusive)	//Dynamics mode, solve the static in a way that generators are handled right
 				{
