@@ -12,7 +12,6 @@
 #include <stdarg.h>
 #include "gridlabd.h"
 #include "generators.h"
-#include "power_electronics.h"
 
 EXPORT SIMULATIONMODE interupdate_diesel_dg(OBJECT *obj, unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val);
 EXPORT STATUS postupdate_diesel_dg(OBJECT *obj, complex *useful_value, unsigned int mode_pass);
@@ -145,7 +144,8 @@ typedef struct {
 class diesel_dg : public gld_object
 {
 private:
-	/* TODO: put private variables here */
+	double Rated_V_LN;	//Rated voltage - LN value
+
 	complex *pCircuit_V; ///< pointer to the three voltages on three lines
 	complex *pLine_I; ///< pointer to the three current on three lines
 
@@ -193,12 +193,8 @@ protected:
 	/* TODO: put unpublished but inherited variables */
 public:
 	/* TODO: put published variables here */
-	enum {OFFLINE=1, ONLINE};
-	enumeration Gen_status;
-	enum {INDUCTION=1, SYNCHRONOUS, DYNAMIC, NON_DYN_CONSTANT_PQ};
+	enum {DYNAMIC=1, NON_DYN_CONSTANT_PQ};
 	enumeration Gen_type;
-	enum {CONSTANTE=1, CONSTANTP, CONSTANTPQ};
-	enumeration Gen_mode;
 
 	//Dynamics synchronous generator capabilities
 	enum {NO_EXC=1, SEXS};
@@ -212,47 +208,11 @@ public:
 	bool gov_ggv1_fsra_enable;	//Enables/disables middle fsra of low-value select (acceleration limiter)
 	bool gov_ggv1_fsrn_enable;	//Enables/disables lower fsrn of low-value select (normal PID controller)
 
-	//Diesel engine inputs
-	complex AMx[3][3];			//Impedance matrix for Synchronous Generator
-	complex invAMx[3][3];		//Inverse of SG impedance matrix
-
-	double speed; // speed of an engine
-	double cylinders;//Total number of cylinders in a diesel engine
-	double stroke; //category of internal combustion engines
-	double torque;//Net brake load
-	double pressure;//Mean effective pressure
-	double time_operation; 
-	double fuel;//fuel consumption
-	double w_coolingwater;//weight of cooling water supplied per minute
-	double inlet_temperature; //Inlet temperature of cooling water in degC
-	double outlet_temperature;//outlet temperature of cooling water in degC
-	double air_fuel; //Air used per kg fuel
-	double room_temperature; //Room temperature in degC
-	double exhaust_temperature;//exhaust gas temperature in degC
-	double cylinder_length;
-	double cylinder_radius;//
-	double brake_diameter;//
-	double calotific_fuel;//calorific value of fuel
-	double steam_exhaust;//steam formed per kg of fuel in the exhaust
-	double specific_heat_steam;//specific heat of steam in exhaust
-	double specific_heat_dry;//specific heat of dry exhaust gases
-	double indicated_hp; //Indicated horse power is the power developed inside the cylinder
-	double brake_hp; //brake horse power is the output of the engine at the shaft measured by a dynamometer.
-	double thermal_efficiency;//thermal efficiency or mechanical efiiciency of the engine is efined as bp/ip
-	double energy_supplied; //energy supplied during the trail
-	double heat_equivalent_ip;//heat equivalent of IP in a given time of operation
-	double energy_coolingwater;//energy carried away by cooling water
-	double mass_exhaustgas; //mass of dry exhaust gas
-	double energy_exhaustgas;//energy carried away by dry exhaust gases
-	double energy_steam;//energy carried away by steam
-	double total_energy_exhaustgas;//total energy carried away by dry exhaust gases is the sum of energy carried away bt steam and energy carried away by dry exhaust gases
-	double unaccounted_energyloss;//unaccounted for energy loss
-
-	double Rated_V;
+	//General properties
+	double Rated_V_LL;	//Rated voltage - LL value
 	double Rated_VA;
+	double power_factor;
 
-	//end of diesel engine inputs
-	
 	//diesel NON_DYN_CONSTANT_PQ type parameters
 
 	gld_property *pPower_A;	// pointer to power_out_A on the diesel_dg parent node
@@ -263,36 +223,10 @@ public:
 
 	//Synchronous gen inputs
 	
-	double Pconv;//Converted power = Mechanical input - (F & W loasses + Stray losses + Core losses)
-
-	double pf;
-
-	double GenElecEff;
-	complex TotalPowerOutput;
-
-	//end of synchronous generator inputs
-	double Rs;//< internal transient resistance in p.u.
-	double Xs;//< internal transient impedance in p.u.
-    double Rg;//< grounding resistance in p.u.
-	double Xg;//< grounding impedance in p.u.
 	double Max_Ef;//< maximum induced voltage in p.u., e.g. 1.2
     double Min_Ef;//< minimus induced voltage in p.u., e.g. 0.8
-	double Max_P;//< maximum real power capacity in kW
-    double Min_P;//< minimus real power capacity in kW
-	double Max_Q;//< maximum reactive power capacity in kVar
-    double Min_Q;//< minimus reactive power capacity in kVar
-	double Rated_kVA; //< nominal capacity in kVA
-	double Rated_kV; //< nominal line-line voltage in kV
-	complex voltage_A;//voltage
-	complex voltage_B;
-	complex voltage_C;
-	complex current_A;      // current
-	complex current_B;
-	complex current_C;
+	complex current_val[3];	//Present current output of the generator
 	complex power_val[3];	//Present power output of the generator
-	complex EfA;// induced voltage on phase A in Volt
-	complex EfB;
-	complex EfC;
 
 	//Convergence criteria (ion right now)
 	double rotor_speed_convergence_criterion;
@@ -343,7 +277,6 @@ public:
 	double ki_Qconstant;		// ki for the PI controller implemented in Q constant delta mode
 	double kp_Qconstant;		// kp for the PI controller implemented in Q constant delta mode
 	
-
 	// parameters related to CVR control in AVR
 	bool CVRenabled;				// Flag indicating whether CVR control is enabled or not inside the exciter
 	double ki_cvr;					// Integral gain for PI/PID controller of the CVR control

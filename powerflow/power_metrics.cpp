@@ -514,6 +514,13 @@ EXPORT void count_from_status_change_secondary(OBJECT *obj, int *in_outage, int 
 		// Obtain this meter customer interruption type (primary or secondary or no interruption)
 		retval = ((int (*)(OBJECT*, TIMESTAMP, TIMESTAMP, bool*, bool*))(*funadd))(customerObj, event_start_time,event_end_time,&interrupted, &momentaryFault);
 
+		//Make sure it returned proper values
+		if (retval < 0)
+		{
+			GL_THROW("Unable to identify interruptions from customer %s",customerObj->name);
+			//Defined above
+		}
+
 		if (interrupted == true && momentaryFault == false){
 			in_outage_temp++;
 		}

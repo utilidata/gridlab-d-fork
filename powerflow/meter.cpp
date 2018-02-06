@@ -1078,11 +1078,29 @@ EXPORT int identify_interruptions_meter(OBJECT *obj, TIMESTAMP event_start_time,
 	int totalTime = 0;
 	meter *my = OBJECTDATA(obj,meter);
 	int count, index, total_off_time, total_on_time, interruptions_count, diff_time;
+	int *off_time_index;
 
 	// Create an array storing off status time only
 	index = 0; // stroing total numbers of off status during this event
 	count = my->count_status_change;
-	int off_time_index[count];
+
+	//Allocate the array
+	off_time_index = (int *)gl_malloc(count*sizeof(int));
+
+	//Make sure it worked
+	if (off_time_index == NULL)
+	{
+		gl_error("identify_interruptions_meter(obj=%d;%s): Failed to allocate time index",obj->id,(obj->name ? obj->name:"Unnamed"));
+		/*  TROUBLESHOOT
+		While trying to allocate an array to track interruption times, an error occurred.  Please try again.
+		If the error persists, please submit your GLM and a bug report via the ticketing/issue system.
+		*/
+		return -1;
+	}
+
+	//Zero it, just to be a good person
+	memset(off_time_index,0.0,count);
+	
 	// Intialize the off-time array
 	for (int i = 0; i < count; i++)
 	{
@@ -1152,6 +1170,8 @@ EXPORT int identify_interruptions_meter(OBJECT *obj, TIMESTAMP event_start_time,
 		*momentaryFault = false;
 	}
 
+	//Free the allocation before we go
+	gl_free(off_time_index);
 
 	return interruptions_count;
 }
