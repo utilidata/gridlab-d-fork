@@ -1434,7 +1434,7 @@ STATUS jsondump::dump_system(void)
 			}
 
 			pRegulator[index] = OBJECTDATA(obj,regulator);
-			if(pTransformer[index] == NULL){
+			if(pRegulator[index] == NULL){
 				gl_error("Unable to map object as regulator object.");
 				return FAILED;
 			}
@@ -2269,11 +2269,11 @@ STATUS jsondump::dump_system(void)
 
 			pSwitch[index] = OBJECTDATA(obj,switch_object);
 			if(pSwitch[index] == NULL){
-				gl_error("Unable to map object as transformer object.");
+				gl_error("Unable to map object as switch object.");
 				return FAILED;
 			}
 
-			// Write the transformer metrics
+			// Write the switch metrics
 			// Write the name (not id) - if it exists
 			if (obj->name != NULL)
 			{
