@@ -875,44 +875,6 @@ int diesel_dg::init(OBJECT *parent)
 			else
 				power_val[2] = complex((power_base*test_pf),(sqrt(1-test_pf*test_pf)*power_base));
 		}//End phase C power limit check
-
-		//Check for zeros - if any are zero, 50% them (real generator, arbitrary)
-		if (power_val[0].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_A is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_A value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[0] = complex(0.5*power_base,0.0);
-		}
-
-		if (power_val[1].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_B is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_B value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[1] = complex(0.5*power_base,0.0);
-		}
-
-		if (power_val[2].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_C is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_C value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[2] = complex(0.5*power_base,0.0);
-		}
-
 	}
 	else	//Must be dynamic!
 	{
@@ -1022,43 +984,6 @@ int diesel_dg::init(OBJECT *parent)
 			else
 				power_val[2] = complex((power_base*test_pf),(sqrt(1-test_pf*test_pf)*power_base));
 		}//End phase C power limit check
-
-		//Check for zeros - if any are zero, 50% them (real generator, arbitrary)
-		if (power_val[0].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_A is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_A value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[0] = complex(0.5*power_base,0.0);
-		}
-
-		if (power_val[1].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_B is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_B value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[1] = complex(0.5*power_base,0.0);
-		}
-
-		if (power_val[2].Mag() == 0.0)
-		{
-			gl_warning("diesel_dg:%s - power_out_C is zero - arbitrarily setting to 50%%",obj->name?obj->name:"unnamed");
-			/*  TROUBLESHOOT
-			The diesel_dg object has a power_out_C value that is zero.  This can cause the generator to never
-			partake in the powerflow.  It is being arbitrarily set to 50% of the per-phase rating.  If this is
-			undesired, please change the value.
-			*/
-
-			power_val[2] = complex(0.5*power_base,0.0);
-		}
 
 		if (apply_rotor_speed_convergence == true)
 		{

@@ -419,7 +419,17 @@ int64 solver_nr(unsigned int bus_count, BUSDATA *bus, unsigned int branch_count,
 		{
 			//Determine the size we need
 			if ((bus[indexer].phases & 0x80) == 0x80)	//Split phase
-				powerflow_values->BA_diag[indexer].size = 2;
+			{
+				//See if we actually have any phases
+				if ((bus[indexer].phases & 0x07) != 0x00)
+				{
+					powerflow_values->BA_diag[indexer].size = 2;
+				}
+				else
+				{
+					powerflow_values->BA_diag[indexer].size = 0;
+				}
+			}
 			else										//Other cases, figure out how big they are
 			{
 				phase_worka = 0;
@@ -492,44 +502,49 @@ int64 solver_nr(unsigned int bus_count, BUSDATA *bus, unsigned int branch_count,
 					}
 					else if ((bus[indexer].phases & 0x80) == 0x80)	//Split phase - add in 2x2 element to upper left 2x2
 					{
-						if (branch[jindexer].from == indexer)	//From branch
+						//See if we have any phases
+						if ((bus[indexer].phases & 0x07) != 0x00)
 						{
-							//End of SPCT transformer requires slightly different Diagonal components (so when it's the To bus of SPCT and from for other triplex
-							if ((bus[indexer].phases & 0x20) == 0x20)	//Special case
+							if (branch[jindexer].from == indexer)	//From branch
 							{
-								//Other triplexes need to be negated to match sign conventions
-								tempY[0][0] -= branch[jindexer].YSfrom[0];
-								tempY[0][1] -= branch[jindexer].YSfrom[1];
-								tempY[1][0] -= branch[jindexer].YSfrom[3];
-								tempY[1][1] -= branch[jindexer].YSfrom[4];
+								//End of SPCT transformer requires slightly different Diagonal components (so when it's the To bus of SPCT and from for other triplex
+								if ((bus[indexer].phases & 0x20) == 0x20)	//Special case
+								{
+									//Other triplexes need to be negated to match sign conventions
+									tempY[0][0] -= branch[jindexer].YSfrom[0];
+									tempY[0][1] -= branch[jindexer].YSfrom[1];
+									tempY[1][0] -= branch[jindexer].YSfrom[3];
+									tempY[1][1] -= branch[jindexer].YSfrom[4];
+								}
+								else										//Just a normal to bus
+								{
+									tempY[0][0] += branch[jindexer].YSfrom[0];
+									tempY[0][1] += branch[jindexer].YSfrom[1];
+									tempY[1][0] += branch[jindexer].YSfrom[3];
+									tempY[1][1] += branch[jindexer].YSfrom[4];
+								}
 							}
-							else										//Just a normal to bus
+							else									//To branch
 							{
-								tempY[0][0] += branch[jindexer].YSfrom[0];
-								tempY[0][1] += branch[jindexer].YSfrom[1];
-								tempY[1][0] += branch[jindexer].YSfrom[3];
-								tempY[1][1] += branch[jindexer].YSfrom[4];
-							}
-						}
-						else									//To branch
-						{
-							//Replicate the above for SPCT test, in case people put lines in backwards
-							//End of SPCT transformer requires slightly different Diagonal components (so when it's the To bus of SPCT and from for other triplex
-							if (((bus[indexer].phases & 0x20) == 0x20) && (branch[jindexer].lnk_type == 1))	//Special case, but make sure we're not the transformer
-							{
-								tempY[0][0] -= branch[jindexer].YSto[0];
-								tempY[0][1] -= branch[jindexer].YSto[1];
-								tempY[1][0] -= branch[jindexer].YSto[3];
-								tempY[1][1] -= branch[jindexer].YSto[4];
-							}
-							else	//Normal bus - no funky SPCT nonsense
-							{
-								tempY[0][0] += branch[jindexer].YSto[0];
-								tempY[0][1] += branch[jindexer].YSto[1];
-								tempY[1][0] += branch[jindexer].YSto[3];
-								tempY[1][1] += branch[jindexer].YSto[4];
-							}
-						}
+								//Replicate the above for SPCT test, in case people put lines in backwards
+								//End of SPCT transformer requires slightly different Diagonal components (so when it's the To bus of SPCT and from for other triplex
+								if (((bus[indexer].phases & 0x20) == 0x20) && (branch[jindexer].lnk_type == 1))	//Special case, but make sure we're not the transformer
+								{
+									tempY[0][0] -= branch[jindexer].YSto[0];
+									tempY[0][1] -= branch[jindexer].YSto[1];
+									tempY[1][0] -= branch[jindexer].YSto[3];
+									tempY[1][1] -= branch[jindexer].YSto[4];
+								}
+								else	//Normal bus - no funky SPCT nonsense
+								{
+									tempY[0][0] += branch[jindexer].YSto[0];
+									tempY[0][1] += branch[jindexer].YSto[1];
+									tempY[1][0] += branch[jindexer].YSto[3];
+									tempY[1][1] += branch[jindexer].YSto[4];
+								}
+							}//End To-side check
+						}//End triplex has phases
+						//Default else - just let it go on (nothing to do)
 					}
 					else	//We must be a single or two-phase line - always populate the upper left portion of matrix (easier for later)
 					{
