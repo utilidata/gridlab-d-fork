@@ -105,7 +105,8 @@ STATUS jsondump::dump_system(void)
 {
 	//TODO: See if the object arrays need to be maintained/are even needed!
 
-	FINDLIST *ohlines, *tplines, *uglines, *switches, *regulators, *regConfs, *lineConfs, *tpLineConfs, *TransformerList, *TransConfsList, *nodes, *meters, *loads, *inverters, *diesels;
+	FINDLIST *ohlines, *tplines, *uglines, *switches, *regulators, *regConfs, *lineConfs, *tpLineConfs, *TransformerList, *TransConfsList, *nodes, *meters, *loads, *inverters, *diesels, *fuses;
+	FINDLIST *reclosers, *sectionalizers;
 	OBJECT *objhdr = OBJECTHDR(this);
 	OBJECT *obj = NULL;
 	OBJECT *obj_lineConf = NULL;
@@ -132,6 +133,9 @@ STATUS jsondump::dump_system(void)
 	complex b_mat_switch_pu[9];
 	bool b_mat_switch_defined;
 	int switch_phase_count;
+	complex b_mat_fuse_pu[9];
+	bool b_mat_fuse_defined;
+	int fuse_phase_count;
 	set temp_set_value;
 	enumeration temp_enum_value;
 	bool found_match_config;
@@ -157,6 +161,9 @@ STATUS jsondump::dump_system(void)
 		tplines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line",AND,FT_MODULE,SAME,"powerflow",FT_END);				//find all triplex_lines
 		uglines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"underground_line",AND,FT_MODULE,SAME,"powerflow",FT_END);			//find all underground_lines
 		switches = gl_find_objects(FL_NEW,FT_CLASS,SAME,"switch",AND,FT_MODULE,SAME,"powerflow",FT_END);					//find all switches
+		sectionalizers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"sectionalizer",AND,FT_MODULE,SAME,"powerflow",FT_END);		//find all sectionalizer
+		reclosers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"recloser",AND,FT_MODULE,SAME,"powerflow",FT_END);					//find all recloser
+		fuses = gl_find_objects(FL_NEW,FT_CLASS,SAME,"fuse",AND,FT_MODULE,SAME,"powerflow",FT_END);							//Find all fuses
 		regulators = gl_find_objects(FL_NEW,FT_CLASS,SAME,"regulator",AND,FT_MODULE,SAME,"powerflow",FT_END);				//find all regulators
 		regConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"regulator_configuration",AND,FT_MODULE,SAME,"powerflow",FT_END);	//find all regulator configurations
 		lineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"line_configuration",AND,FT_MODULE,SAME,"powerflow",FT_END);			//find all line configurations
@@ -166,13 +173,17 @@ STATUS jsondump::dump_system(void)
 		nodes = gl_find_objects(FL_NEW,FT_CLASS,SAME,"node",AND,FT_MODULE,SAME,"powerflow",FT_END);								//Find all nodes
 		meters = gl_find_objects(FL_NEW,FT_CLASS,SAME,"meter",AND,FT_MODULE,SAME,"powerflow",FT_END);							//Find all meters
 		loads = gl_find_objects(FL_NEW,FT_CLASS,SAME,"load",AND,FT_MODULE,SAME,"powerflow",FT_END);								//Find all loads
-		inverters = gl_find_objects(FL_NEW,FT_CLASS,SAME,"inverter",AND,FT_MODULE,SAME,"generators",FT_END);						//Find all inverters
+
+		inverters = gl_find_objects(FL_NEW,FT_CLASS,SAME,"inverter",AND,FT_MODULE,SAME,"generators",FT_END);					//Find all inverters
 		diesels = gl_find_objects(FL_NEW,FT_CLASS,SAME,"diesel_dg",AND,FT_MODULE,SAME,"generators",FT_END);						//Find all diesels
 	} else {
 		ohlines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"overhead_line",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		tplines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"triplex_line",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		uglines = gl_find_objects(FL_NEW,FT_CLASS,SAME,"underground_line",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		switches = gl_find_objects(FL_NEW,FT_CLASS,SAME,"switch",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
+		sectionalizers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"sectionalizer",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
+		reclosers = gl_find_objects(FL_NEW,FT_CLASS,SAME,"recloser",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
+		fuses = gl_find_objects(FL_NEW,FT_CLASS,SAME,"fuse",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		regulators = gl_find_objects(FL_NEW,FT_CLASS,SAME,"regulator",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		regConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"regulator_configuration",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		lineConfs = gl_find_objects(FL_NEW,FT_CLASS,SAME,"line_configuration",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
@@ -182,6 +193,7 @@ STATUS jsondump::dump_system(void)
 		nodes = gl_find_objects(FL_NEW,FT_CLASS,SAME,"node",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		meters = gl_find_objects(FL_NEW,FT_CLASS,SAME,"meter",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
 		loads = gl_find_objects(FL_NEW,FT_CLASS,SAME,"load",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"powerflow",FT_END);
+
 		inverters = gl_find_objects(FL_NEW,FT_CLASS,SAME,"inverter",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"generators",FT_END);
 		diesels = gl_find_objects(FL_NEW,FT_CLASS,SAME,"diesel_dg",AND,FT_GROUPID,SAME,group.get_string(),AND,FT_MODULE,SAME,"generators",FT_END);
 	}
@@ -2238,7 +2250,7 @@ STATUS jsondump::dump_system(void)
 		}
 	}
 
-	//Initial value
+	//Initial value for swtiches
 	b_mat_switch_defined = false;
 
 	//Write switches
@@ -2366,7 +2378,7 @@ STATUS jsondump::dump_system(void)
 			line_object["num_phases"] = phaseCount;
 
 			//write is_transformer
-			line_object["is_transformer"] = true;
+			line_object["is_transformer"] = false;
 
 			//If per-unit - adjust the values
 			if (write_per_unit == true)
@@ -2428,14 +2440,623 @@ STATUS jsondump::dump_system(void)
 		}//End of switches
 	}
 
+	//Write sectionalizers
+	if(sectionalizers->hit_count > 0)
+	{
+		//Allocate the master array
+		pSectionalizer = (sectionalizer **)gl_malloc(sectionalizers->hit_count*sizeof(sectionalizer*));
+
+		//Check it
+		if (pSectionalizer == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
+		}
+
+		//Grab the first object
+		obj = gl_find_next(sectionalizers,NULL);
+
+		//Zero the index
+		index = 0;
+
+		while(obj != NULL)
+		{
+			if(index >= sectionalizers->hit_count){
+				break;
+			}
+
+			pSectionalizer[index] = OBJECTDATA(obj,sectionalizer);
+			if(pSectionalizer[index] == NULL){
+				gl_error("Unable to map object as sectionalizer object.");
+				return FAILED;
+			}
+
+			// Write the sectionalizer metrics
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				//"Make" a value
+				sprintf(buffer,"sectionalizer:%d",obj->id);
+				line_object["id"] = buffer;
+			}
+
+			//write from node name
+			if (pSectionalizer[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pSectionalizer[index]->from->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pSectionalizer[index]->from->oclass->name,pSectionalizer[index]->from->id);
+				line_object["node1_id"] = buffer;
+			}
+
+			//write to node name
+			if (pSectionalizer[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pSectionalizer[index]->to->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pSectionalizer[index]->to->oclass->name,pSectionalizer[index]->to->id);
+				line_object["node2_id"] = buffer;
+			}
+
+			//Pull the phases and figure out those
+			temp_set_value = get_set_value(obj,"phases");
+			
+			//Clear the output array
+			jsonArray2.clear();
+
+			//Do the tests -- we're in powerflow, so the master definitions still work
+			//Get phase count too
+			phaseCount = 0;
+			//Phase A
+			if ((temp_set_value & PHASE_A) == PHASE_A)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+				
+			//Phase B
+			if ((temp_set_value & PHASE_B) == PHASE_B)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Phase C
+			if ((temp_set_value & PHASE_C) == PHASE_C)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Append it in
+			line_object["has_phase"] = jsonArray2;
+			jsonArray2.clear();
+
+			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
+			line_object["capacity"] = 1e30;
+			
+			//write the length
+			line_object["length"] = 1.0;
+
+			//write the num_phases
+			line_object["num_phases"] = phaseCount;
+
+			//write is_transformer
+			line_object["is_transformer"] = false;
+
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				per_unit_base = get_double_value(pSectionalizer[index]->to,"nominal_voltage");
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+
+			//write line configuration, if we're unique
+			if (b_mat_switch_defined==false)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					for (indexC = 0; indexC < 3; indexC++)
+					{
+						b_mat_switch_pu[indexB*3+indexC] = pSectionalizer[index]->b_mat[indexB][indexC]/temp_impedance_base;
+					}
+				}
+				b_mat_switch_defined = true;
+				switch_phase_count = phaseCount;	//Just store the first one
+			}
+
+			//write line_code
+			line_object["line_code"] = "switch_config";
+
+			//write construction cost - only default value
+			line_object["construction_cost"] = 1e30;
+			//write hardening cost - only default cost
+			line_object["harden_cost"] = 1e30;
+			//write switch cost - only default cost
+			line_object["switch_cost"] = 1e30;
+			//write flag of new construction - only default cost
+			line_object["is_new"] = false;
+			//write flag of harden - only default cost
+			line_object["can_harden"] = false;
+			//write flag of add switch - only default cost
+			line_object["can_add_switch"] = false;
+			//write flag of switch existence - only default cost
+			line_object["has_switch"] = true;
+			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
+			//Get next value
+			obj = gl_find_next(sectionalizers,obj);
+
+			index++;
+		}//End of sectionalizers
+	}
+
+	//Write reclosers
+	if(reclosers->hit_count > 0)
+	{
+
+		//Allocate the master array
+		pRecloser = (recloser **)gl_malloc(reclosers->hit_count*sizeof(recloser*));
+
+		//Check it
+		if (pRecloser == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
+		}
+
+		//Grab the first object
+		obj = gl_find_next(reclosers,NULL);
+
+		//Zero the index
+		index = 0;
+
+		while(obj != NULL)
+		{
+			if(index >= reclosers->hit_count){
+				break;
+			}
+
+			pRecloser[index] = OBJECTDATA(obj,recloser);
+			if(pRecloser[index] == NULL){
+				gl_error("Unable to map object as recloser object.");
+				return FAILED;
+			}
+
+			// Write the recloser metrics
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				//"Make" a value
+				sprintf(buffer,"recloser:%d",obj->id);
+				line_object["id"] = buffer;
+			}
+
+			//write from node name
+			if (pRecloser[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pRecloser[index]->from->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pRecloser[index]->from->oclass->name,pRecloser[index]->from->id);
+				line_object["node1_id"] = buffer;
+			}
+
+			//write to node name
+			if (pRecloser[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pRecloser[index]->to->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pRecloser[index]->to->oclass->name,pRecloser[index]->to->id);
+				line_object["node2_id"] = buffer;
+			}
+
+			//Pull the phases and figure out those
+			temp_set_value = get_set_value(obj,"phases");
+			
+			//Clear the output array
+			jsonArray2.clear();
+
+			//Do the tests -- we're in powerflow, so the master definitions still work
+			//Get phase count too
+			phaseCount = 0;
+			//Phase A
+			if ((temp_set_value & PHASE_A) == PHASE_A)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+				
+			//Phase B
+			if ((temp_set_value & PHASE_B) == PHASE_B)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Phase C
+			if ((temp_set_value & PHASE_C) == PHASE_C)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Append it in
+			line_object["has_phase"] = jsonArray2;
+			jsonArray2.clear();
+
+			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
+			line_object["capacity"] = 1e30;
+			
+			//write the length
+			line_object["length"] = 1.0;
+
+			//write the num_phases
+			line_object["num_phases"] = phaseCount;
+
+			//write is_transformer
+			line_object["is_transformer"] = false;
+
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				per_unit_base = get_double_value(pRecloser[index]->to,"nominal_voltage");
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+
+			//write line configuration, if we're unique
+			if (b_mat_switch_defined==false)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					for (indexC = 0; indexC < 3; indexC++)
+					{
+						b_mat_switch_pu[indexB*3+indexC] = pRecloser[index]->b_mat[indexB][indexC]/temp_impedance_base;
+					}
+				}
+				b_mat_switch_defined = true;
+				switch_phase_count = phaseCount;	//Just store the first one
+			}
+
+			//write line_code
+			line_object["line_code"] = "switch_config";
+
+			//write construction cost - only default value
+			line_object["construction_cost"] = 1e30;
+			//write hardening cost - only default cost
+			line_object["harden_cost"] = 1e30;
+			//write switch cost - only default cost
+			line_object["switch_cost"] = 1e30;
+			//write flag of new construction - only default cost
+			line_object["is_new"] = false;
+			//write flag of harden - only default cost
+			line_object["can_harden"] = false;
+			//write flag of add switch - only default cost
+			line_object["can_add_switch"] = false;
+			//write flag of switch existence - only default cost
+			line_object["has_switch"] = true;
+			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
+			//Get next value
+			obj = gl_find_next(reclosers,obj);
+
+			index++;
+		}//End of reclosers
+	}
+
+	//Initial value for fuses
+	b_mat_fuse_defined = false;
+
+	//Write fuses
+	if(fuses->hit_count > 0)
+	{
+
+		//Allocate the master array
+		pFuse = (fuse **)gl_malloc(fuses->hit_count*sizeof(fuse*));
+
+		//Check it
+		if (pFuse == NULL)
+		{
+			GL_THROW("jsdondump:%d %s - Unable to allocate memory",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+			//Defined above
+		}
+
+		//Grab the first object
+		obj = gl_find_next(fuses,NULL);
+
+		//Zero the index
+		index = 0;
+
+		while(obj != NULL)
+		{
+			if(index >= fuses->hit_count){
+				break;
+			}
+
+			pFuse[index] = OBJECTDATA(obj,fuse);
+			if(pFuse[index] == NULL){
+				gl_error("Unable to map object as fuse object.");
+				return FAILED;
+			}
+
+			// Write the fuse metrics
+			// Write the name (not id) - if it exists
+			if (obj->name != NULL)
+			{
+				line_object["id"] = obj->name;
+			}
+			else
+			{
+				//"Make" a value
+				sprintf(buffer,"fuse:%d",obj->id);
+				line_object["id"] = buffer;
+			}
+
+			//write from node name
+			if (pFuse[index]->from->name != NULL)
+			{
+				line_object["node1_id"] = pFuse[index]->from->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pFuse[index]->from->oclass->name,pFuse[index]->from->id);
+				line_object["node1_id"] = buffer;
+			}
+
+			//write to node name
+			if (pFuse[index]->to->name != NULL)
+			{
+				line_object["node2_id"] = pFuse[index]->to->name;
+			}
+			else
+			{
+				//Make value
+				sprintf(buffer,"%s:%d",pFuse[index]->to->oclass->name,pFuse[index]->to->id);
+				line_object["node2_id"] = buffer;
+			}
+
+			//Pull the phases and figure out those
+			temp_set_value = get_set_value(obj,"phases");
+			
+			//Clear the output array
+			jsonArray2.clear();
+
+			//Do the tests -- we're in powerflow, so the master definitions still work
+			//Get phase count too
+			phaseCount = 0;
+			//Phase A
+			if ((temp_set_value & PHASE_A) == PHASE_A)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+				
+			//Phase B
+			if ((temp_set_value & PHASE_B) == PHASE_B)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Phase C
+			if ((temp_set_value & PHASE_C) == PHASE_C)
+			{
+				jsonArray2.append(true);
+				phaseCount++;
+			}
+			else
+			{
+				jsonArray2.append(false);
+			}
+
+			//Append it in
+			line_object["has_phase"] = jsonArray2;
+			jsonArray2.clear();
+
+			//write capacity - I wanted to use link emergency limit (A), but its private field, write only default value
+			line_object["capacity"] = 1e30;
+			
+			//write the length
+			line_object["length"] = 1.0;
+
+			//write the num_phases
+			line_object["num_phases"] = phaseCount;
+
+			//write is_transformer
+			line_object["is_transformer"] = false;
+
+			//If per-unit - adjust the values
+			if (write_per_unit == true)
+			{
+				//Compute the per-unit base - use the nominal value off of the secondary
+				per_unit_base = get_double_value(pFuse[index]->to,"nominal_voltage");
+
+				//Calculate the base impedance
+				temp_impedance_base = (per_unit_base * per_unit_base) / (system_VA_base / 3.0);
+			}//End per-unit
+			else	//No per-unit desired
+			{
+				temp_impedance_base = 1.0;	//Divide by unity - does nothing really, but easier to code this way
+			}
+
+			//write line configuration, if we're unique
+			if (b_mat_fuse_defined==false)
+			{
+				for (indexB = 0; indexB < 3; indexB++)
+				{
+					for (indexC = 0; indexC < 3; indexC++)
+					{
+						b_mat_fuse_pu[indexB*3+indexC] = pFuse[index]->b_mat[indexB][indexC]/temp_impedance_base;
+					}
+				}
+				b_mat_fuse_defined = true;
+				fuse_phase_count = phaseCount;	//Just store the first one
+			}
+
+			//write line_code
+			line_object["line_code"] = "fuse_config";
+
+			//write construction cost - only default value
+			line_object["construction_cost"] = 1e30;
+			//write hardening cost - only default cost
+			line_object["harden_cost"] = 1e30;
+			//write switch cost - only default cost
+			line_object["switch_cost"] = 1e30;
+			//write flag of new construction - only default cost
+			line_object["is_new"] = false;
+			//write flag of harden - only default cost
+			line_object["can_harden"] = false;
+			//write flag of add switch - only default cost
+			line_object["can_add_switch"] = false;
+			//write flag of switch existence - only default cost
+			line_object["has_switch"] = true;
+			// End of line codes
+
+			// Append to line array
+			jsonArray.append(line_object);
+
+			// clear JSON value
+			line_object.clear();
+
+			//Get next value
+			obj = gl_find_next(fuses,obj);
+
+			index++;
+		}//End of fuses
+	}
+
 	// Write line metrics into metrics_lines dictionary
 	metrics_lines["properties"]["lines"] = jsonArray;
 
 	// clear jsonArray
 	jsonArray.clear();
 
+	//Write a "fuse config", if it exists - assume that if one exists, this needs written
+	if (fuses->hit_count > 0)
+	{
+		line_configuration_object["line_code"] = "fuse_config";
+
+		//write num_phases
+		line_configuration_object["num_phases"] = fuse_phase_count;
+
+		//Clear the arrays, just to be safe
+		jsonArray1.clear();
+		jsonArray2.clear();
+
+		// write rmatrix
+		for (indexA = 0; indexA < 3; indexA++)
+		{
+			for (indexB = 0; indexB < 3; indexB++)
+			{
+				jsonArray1.append(b_mat_fuse_pu[indexA*3+indexB].Re());
+			}
+			jsonArray2.append(jsonArray1);
+			jsonArray1.clear();
+		}
+		line_configuration_object["rmatrix"] = jsonArray2;
+		jsonArray2.clear();
+
+		//write xmatrix
+		for (indexA = 0; indexA < 3; indexA++)
+		{
+			for (indexB = 0; indexB < 3; indexB++)
+			{
+				jsonArray1.append(b_mat_fuse_pu[indexA*3+indexB].Im());
+			}
+			jsonArray2.append(jsonArray1);
+			jsonArray1.clear();
+		}
+		line_configuration_object["xmatrix"] = jsonArray2;
+		jsonArray2.clear();
+		// end this line configuration
+
+		// Append to line array
+		jsonArray.append(line_configuration_object);
+
+		// clear JSON value
+		line_configuration_object.clear();
+	}//End fuses "configuration"
+
 	//Write a "switch config", if it exists - assume that if one exists, this needs written
-	if (switches->hit_count > 0)
+	if ((switches->hit_count > 0) || (reclosers->hit_count > 0) || (sectionalizers->hit_count > 0))
 	{
 		line_configuration_object["line_code"] = "switch_config";
 
@@ -2828,6 +3449,9 @@ STATUS jsondump::dump_system(void)
 	gl_free(nodes);
 	gl_free(meters);
 	gl_free(loads);
+	gl_free(fuses);
+	gl_free(reclosers);
+	gl_free(sectionalizers);
 	gl_free(inverters);
 	gl_free(diesels);
 

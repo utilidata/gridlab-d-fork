@@ -30,13 +30,13 @@ public:
 	bool write_per_unit;
 	double system_VA_base;
 	power_metrics **pPowerMetrics;
-	link_object **pFuse;
+	fuse **pFuse;
 	line **pOhLine;
-	link_object **pRecloser;
+	recloser **pRecloser;
 	regulator **pRegulator;
-	link_object **pRelay;
-	link_object **pSectionalizer;
-	link_object **pSeriesReactor;
+	//link_object **pRelay;
+	sectionalizer **pSectionalizer;
+	//link_object **pSeriesReactor;
 	switch_object **pSwitch;
 	line **pTpLine;
 	line **pUgLine;
