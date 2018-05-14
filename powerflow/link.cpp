@@ -2134,6 +2134,8 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 			int resultval;
 			bool *temp_empty;
 			OBJECT *obj = OBJECTHDR(this);
+			int index;
+			OBJECT *loadObj;
 
 			if (fnode==NULL || tnode==NULL)
 				return TS_NEVER;
@@ -2703,6 +2705,53 @@ TIMESTAMP link_object::presync(TIMESTAMP t0)
 			{
 				NR_branchdata[NR_branch_reference].ExtraDeltaModeFunc = NULL;
 			}
+
+			// Find and store all load objects, to be used when fault occurs
+			// Find all loads
+			loads = gl_find_objects(FL_NEW,FT_CLASS,SAME,"load",FT_END);
+
+			// Check if load and triplex load objects are found
+			if(loads == NULL) {
+				return TS_INVALID;
+				/* TROUBLESHOOT
+				No load or triplex_load objects were found in your .glm file. If you specified a resilcontroller to control loads, make sure you have loads included in the glm file.
+				*/
+			}
+
+			// Initialize the load/triplex_load object array
+			pLoadObjects = (OBJECT **)gl_malloc((loads->hit_count) * sizeof(OBJECT*));
+			if(pLoadObjects == NULL){
+				gl_error("Failed to allocate load object array.");
+				return TS_NEVER;
+			}
+
+			// Local control of the load objects
+			index = 0;
+			loadObj = NULL;
+
+			// Write loads
+			if(loads != NULL){
+				while(loadObj = gl_find_next(loads,loadObj)){
+					if(index >= loads->hit_count){
+						break;
+					}
+					pLoadObjects[numLoads] = loadObj;
+					numLoads++;
+					++index;
+				}
+			}
+
+
+
+
+
+
+
+
+
+
+
+
 		}//End init loop
 
 		//Call the presync items that are common to deltamode implementations
@@ -11153,6 +11202,11 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 					FaultVoltage[2] = IVf[1];
 				}
 
+
+				//Call the propagation routine
+				//Fault is always assumed to be on the "to" end of the branch, based on above work
+				mesh_fault_current_propagation(FaultVoltage,NR_branchdata[NR_branch_reference].to);
+
 			}
 		else if (phaseCheck == 2)
 			{
@@ -11256,6 +11310,11 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 						FaultVoltage[0] = IVf[2];
 						FaultVoltage[2] = IVf[3];
 					}
+
+				//Call the propagation routine
+				//Fault is always assumed to be on the "to" end of the branch, based on above work
+				mesh_fault_current_propagation(FaultVoltage,NR_branchdata[NR_branch_reference].to);
+
 			}
 		else if (phaseCheck == 3)
 			{
@@ -11332,6 +11391,7 @@ void link_object::mesh_fault_current_calc(complex Zth[3][3],complex CV[3][3],com
 				//Call the propagation routine
 				//Fault is always assumed to be on the "to" end of the branch, based on above work
 				mesh_fault_current_propagation(FaultVoltage,NR_branchdata[NR_branch_reference].to);
+
 			}
 		else
 			{
@@ -11348,6 +11408,8 @@ void link_object::mesh_fault_current_propagation(complex *VFault, unsigned int f
 	bool prev_node_state, good_to_continue;
 	int prev_node_type, pfresult, return_func_val;
 	link_object *temp_lnk_obj;
+	FUNCTIONADDR funadd = NULL;
+	int ext_result;
 
 	//Allocate the storage array
 	voltage_storage = (complex **)gl_malloc(NR_bus_count*sizeof(complex *));
@@ -11398,6 +11460,34 @@ void link_object::mesh_fault_current_propagation(complex *VFault, unsigned int f
 			NR_busdata[fault_bus].V[indexval] = VFault[indexval];
 		}
 		//Default else - not the faulted phase, just leave it
+	}
+
+	// Convert all loads to impedance loads
+	// Set global flag as true
+	convert_load_to_impedance = true;
+
+	// Loop through all loads, and convert each to impedance load by calling export function
+	for (int i = 0; i < numLoads; i++) {
+
+		// Get function address
+		funadd = (FUNCTIONADDR)(gl_get_function(pLoadObjects[i],"convert_to_impedance_load"));
+
+		// Make sure it was found
+		if (funadd == NULL)
+		{
+			GL_THROW("Unable to convert load to impedance load on %s",pLoadObjects[i]->name);
+			// Defined above
+		}
+
+		// Convert load
+		ext_result = ((int (*)(OBJECT *))(*funadd))(pLoadObjects[i]);
+
+		// Make sure it worked
+		if (ext_result != 1)
+		{
+			GL_THROW("An attempt to convert load %s to impedance load failed.",pLoadObjects[i]->name);
+			// Defined above
+		}
 	}
 
 	//Now call the powerflow with this "new swing node" to get the new results

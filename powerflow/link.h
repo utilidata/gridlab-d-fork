@@ -182,6 +182,10 @@ public:
 
 	//******************** Create a function from solver_nr to calculate Isat
 
+public:
+	FINDLIST *loads;		// List of loads in the feeder
+	OBJECT **pLoadObjects;	// Array of loads objects
+	int numLoads; 			// Number of loads
 };
 
 //Macros

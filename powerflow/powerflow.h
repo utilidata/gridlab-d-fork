@@ -135,6 +135,7 @@ GLOBAL double deltatimestep_running INIT(-1.0);			/** Value of the current delta
 
 //Mesh fault current stuff
 GLOBAL bool enable_mesh_fault_current INIT(false);	/** Flag to enable mesh-based fault current calculations */
+GLOBAL bool convert_load_to_impedance INIT(false);  /** Flag to convert all loads to impedance loads during mesh-based fault current calculations */
 
 // Deltamode stuff
 void schedule_deltamode_start(TIMESTAMP tstart);	/* Anticipated time for a deltamode start, even if it is now */

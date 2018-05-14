@@ -177,6 +177,8 @@ load::load(MODULE *mod) : node(mod)
 			GL_THROW("Unable to publish load current injection update mapping function");
 		if (gl_publish_function(oclass,	"attach_vfd_to_pwr_object", (FUNCTIONADDR)attach_vfd_to_node)==NULL)
 			GL_THROW("Unable to publish load VFD attachment function");
+		if (gl_publish_function(oclass,	"convert_to_impedance_load", (FUNCTIONADDR)convert_to_impedance_load)==NULL)
+			GL_THROW("Unable to publish impedance load conversion function");
     }
 }
 
@@ -823,7 +825,7 @@ void load::load_update_fxn(bool fault_mode)
 				if (SubNode == PARENT)	//Normal parents need this
 				{
 					//See if in-rush is enabled - only makes sense in reliability situations
-					if (enable_inrush_calculations == true)
+					if (enable_inrush_calculations == true || convert_load_to_impedance == true)
 					{
 						//Reset variable
 						volt_below_thresh = false;
@@ -886,7 +888,7 @@ void load::load_update_fxn(bool fault_mode)
 						}
 
 						//See if tripped
-						if (volt_below_thresh == true)
+						if (volt_below_thresh == true || convert_load_to_impedance == true)
 						{
 							//Convert all loads to an impedance-equivalent
 							if (has_phase(PHASE_D))	//Delta-connected
@@ -1284,7 +1286,7 @@ void load::load_update_fxn(bool fault_mode)
 				else //DIFF_PARENT
 				{
 					//See if in-rush is enabled - only makes sense in reliability situations
-					if (enable_inrush_calculations == true)
+					if (enable_inrush_calculations == true || convert_load_to_impedance == true)
 					{
 						//Reset variable
 						volt_below_thresh = false;
@@ -1347,7 +1349,7 @@ void load::load_update_fxn(bool fault_mode)
 						}
 
 						//See if tripped
-						if (volt_below_thresh == true)
+						if (volt_below_thresh == true || convert_load_to_impedance == true)
 						{
 							//Convert all loads to an impedance-equivalent
 							if (has_phase(PHASE_D))	//Delta-connected
@@ -1786,7 +1788,7 @@ void load::load_update_fxn(bool fault_mode)
 				}
 
 				//See if in-rush is enabled - only makes sense in reliability situations
-				if (enable_inrush_calculations == true)
+				if (enable_inrush_calculations == true || convert_load_to_impedance == true)
 				{
 					//Reset variable
 					volt_below_thresh = false;
@@ -1849,7 +1851,7 @@ void load::load_update_fxn(bool fault_mode)
 					}
 
 					//See if tripped
-					if (volt_below_thresh == true)
+					if (volt_below_thresh == true || convert_load_to_impedance == true)
 					{
 						//Zero local power and current accumulators - unparented loads don't do this by default (expect to overwrite)
 						power[0] = 0.0;
@@ -3116,6 +3118,17 @@ EXPORT SIMULATIONMODE interupdate_load(OBJECT *obj, unsigned int64 delta_time, u
 		gl_error("interupdate_load(obj=%d;%s): %s", obj->id, obj->name?obj->name:"unnamed", msg);
 		return status;
 	}
+}
+
+//Function to convert load to impedance based, used when fault occurs
+EXPORT int convert_to_impedance_load(OBJECT *obj)
+{
+	load *my = OBJECTDATA(obj, load);
+
+	//Perform conversion by calling the load update function
+	my->load_update_fxn(true);
+
+	return 1;
 }
 
 int load::kmldata(int (*stream)(const char*,...))

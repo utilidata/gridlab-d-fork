@@ -7,6 +7,7 @@
 #include "node.h"
 
 EXPORT SIMULATIONMODE interupdate_load(OBJECT *obj, unsigned int64 delta_time, unsigned long dt, unsigned int iteration_count_val, bool interupdate_pos);
+EXPORT int convert_to_impedance_load(OBJECT *obj);
 
 class load : public node
 {
