@@ -179,7 +179,7 @@ link_object::link_object(MODULE *mod) : powerflow_object(mod)
 				GL_THROW("Unable to publish link external current calculation function");
 			if (gl_publish_function(oclass,	"check_limits_pwr_object", (FUNCTIONADDR)calculate_overlimit_link)==NULL)
 				GL_THROW("Unable to publish link external power limit calculation function");
-			if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_faut_current)==NULL)
+			if (gl_publish_function(oclass,	"fault_current_recalculation", (FUNCTIONADDR)recalculate_fault_current)==NULL)
 				GL_THROW("Unable to publish link fault current recalculation function");
 	}
 }
@@ -3566,7 +3566,7 @@ EXPORT int calculate_overlimit_link(OBJECT *obj, double *overload_value, bool *o
 }
 
 //Function to recaluclate fault current if feeder topology is changed
-EXPORT int recalculate_faut_current(OBJECT *obj, complex C[7][7],unsigned int removed_phase, int fault_type, bool event_fault)
+EXPORT int recalculate_fault_current(OBJECT *obj, complex C[7][7],unsigned int removed_phase, int fault_type, bool event_fault)
 {
 	link_object *my = OBJECTDATA(obj,link_object);
 
@@ -5018,10 +5018,6 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 	int type_fault;
 	bool switch_val;
 	complex C_mat[7][7];
-	int64 pf_resultval;
-	bool pf_badcompute;
-	NR_MESHFAULT_IMPEDANCE pf_mesh_fault_values;
-	NRSOLVERMODE pf_solvermode;
 	complex pf_mesh_fault_impedance_matrix[3][3];
 	complex CI_mat[3][3];
 	complex CV_mat[3][3];
@@ -7928,30 +7924,8 @@ int link_object::link_fault_on(OBJECT **protect_obj, char *fault_type, int *impl
 		//******************* NOTE -- This may have issues with "non-eventgen" items, like switch opens or fuse blows -- test! *****/
 		if ((enable_mesh_fault_current == true) && (prev_LTime != 0))	//Make sure we're in mesh mode and not the first timestep
 		{
-			//Init variables
-			pf_badcompute = false;
-			pf_mesh_fault_values.return_code = 0;
-			pf_mesh_fault_values.z_matrix = &pf_mesh_fault_impedance_matrix[0][0];
-
-			//Just go with "static" powerflow
-			pf_solvermode=PF_NORMAL;
-
-			//Populate the mesh fault reference - Pull the "TO" node
-			//***** NOTE -- Better approach?? ****/
-			pf_mesh_fault_values.NodeRefNum = NR_branchdata[NR_branch_reference].to;
-
-			//Call the powerflow/impednace creater
-			pf_resultval = solver_nr(NR_bus_count, NR_busdata, NR_branch_count, NR_branchdata, &NR_powerflow, pf_solvermode, &pf_mesh_fault_values, &pf_badcompute);
-
-			//Check the output
-			if ((pf_badcompute == true) || (pf_mesh_fault_values.return_code != 1) || (pf_resultval <= 0))
-			{
-				GL_THROW("link:%d - %s -- Mesh-based fault impedance update failure",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
-				/*  TROUBLESHOOT
-				While attempting to obtain the mesh fault method impedance, an error occurred.  Look for an earlier message for the explicit reason.
-				*/
-			}
-			//Default else -- all was happy, and onward we go!
+			//Call the impedance function
+			mesh_fault_current_impedance_pull(&pf_mesh_fault_impedance_matrix[0][0],NR_branchdata[NR_branch_reference].to);
 		}//End mesh fault current impedance pull
 
 		if ((fault_type[0] == 'S') && (fault_type[1] == 'L') && (fault_type[2] == 'G'))	//SLG - single-line-ground fault
@@ -11111,6 +11085,46 @@ int link_object::link_fault_off(int *implemented_fault, char *imp_fault_name, vo
 		return 1;
 	}//End meshed checking mode
 }
+
+//Function to perform the powerflow call to extract the impedance matrix for the
+//mesh fault current method
+//Functionalized so it can be used later
+void link_object::mesh_fault_current_impedance_pull(complex *MeshImpedanceMatrix, int node_number)
+{
+	bool pf_badcompute;
+	int64 pf_resultval;
+	NRSOLVERMODE pf_solvermode;
+	NR_MESHFAULT_IMPEDANCE mesh_fault_impedance_vals;
+	OBJECT *objhdr = OBJECTHDR(this);
+
+	//Init variables
+	pf_badcompute = false;
+
+	//Init variables
+	mesh_fault_impedance_vals.return_code = 0;
+	mesh_fault_impedance_vals.z_matrix = MeshImpedanceMatrix;
+
+	//Populate the mesh fault reference - Pull the "TO" node
+	//***** NOTE -- Better approach?? ****/
+	mesh_fault_impedance_vals.NodeRefNum = node_number;
+
+	//Just go with "static" powerflow
+	pf_solvermode=PF_NORMAL;
+
+	//Call the powerflow/impedance creator
+	pf_resultval = solver_nr(NR_bus_count, NR_busdata, NR_branch_count, NR_branchdata, &NR_powerflow, pf_solvermode, &mesh_fault_impedance_vals, &pf_badcompute);
+
+	//Check the output
+	if ((pf_badcompute == true) || (mesh_fault_impedance_vals.return_code != 1) || (pf_resultval <= 0))
+	{
+		GL_THROW("link:%d - %s -- Mesh-based fault impedance update failure",objhdr->id,(objhdr->name ? objhdr->name : "Unnamed"));
+		/*  TROUBLESHOOT
+		While attempting to obtain the mesh fault method impedance, an error occurred.  Look for an earlier message for the explicit reason.
+		*/
+	}
+	//Default else -- all was happy, and onward we go!
+}
+
 //adding function to calculate the fault current seen at the swing bus then distribute that current down to fault path to the faulted line
 //right now it is assumed that all faults occur at the to end of the faulted link object.
 
