@@ -1,6 +1,7 @@
 #!/bin/bash
 # Simple installation script created to copy from the <install> compiled folder to one
 # that can be .tar.gz-ed easily.
+# Adjusted for macOS compatibility
 
 #Make sure the built_copies and sub-folder exist, in case we've moved this
 if [ -d "../built_copies/macOS" ]; then
@@ -25,7 +26,7 @@ cp -f ../install64/bin/gridlabd ../package_create
 cp -f ../install64/lib/gridlabd/*.* ../package_create
 cp -f ../install64/share/gridlabd/tzinfo.txt  ../package_create
 cp -f ../install64/share/gridlabd/unitfile.txt ../package_create
-#cp -f ../utilities/gridlabd_gen_standalone ../package_create
+cp -f ../utilities/gridlabd_run.sh ../package_create
 
 #Tar-it-up - do it manually
 cd ../package_create
